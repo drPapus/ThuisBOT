@@ -1,0 +1,24 @@
+{
+  "name": "thuispoort-scanner-stage-1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read-only dry-run scanner for the current Thuispoort housing offer",
+  "scripts": {
+    "login": "tsx src/auth/login.ts",
+    "scan": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.51.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
