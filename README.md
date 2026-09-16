@@ -1,8 +1,8 @@
-# Thuispoort scanner — Stage 1
+# Thuispoort scanner — Stage 3.2
 
-A strictly **read-only, dry-run** TypeScript scanner. It reuses a manually authenticated Playwright session, opens the real Actueel aanbod page, captures its personalized search request, and reports homes for which both `isPassend` and `kanReageren` are `true`.
+A strictly **read-only, dry-run** adaptive polling scanner. It reuses a manually authenticated Playwright session, captures the personalized Actueel aanbod request, and reports only listings not observed during an earlier scan.
 
-The offer search itself is a POST because that is Thuispoort's read-only search API. The scanner does not submit reactions, click reaction buttons, call mutation endpoints, schedule scans, or store housing results.
+The offer search itself is a POST because that is Thuispoort's read-only search API. The scanner stores only known housing IDs; it does not submit reactions, click reaction buttons, call mutation endpoints, or schedule scans.
 
 ## Requirements
 
@@ -37,21 +37,24 @@ npm run scan
 
 The scanner loads the saved browser state and opens `THUISPOORT_AANBOD_PAGE_URL`. It captures the frontend-generated `actueel-aanbod` POST, consumes its response, and preserves its complete JSON body for remaining pages while changing only the `page` query parameter. Results are deduplicated by housing ID.
 
+`npm run scan` remains running and schedules sequential scans in `Europe/Amsterdam`: NORMAL (300s), PRE_WINDOW 11:50–12:00 (60s), HOT 12:00–12:20 (20s), and POST_WINDOW 12:20–12:40 (60s). Each interval is configurable through `.env`; values below 10 seconds are rejected. Sleep is capped at the next mode boundary, scans never overlap, and Ctrl+C stops an active wait immediately.
+
 Authentication is accepted only when the API results contain `reactionData.loggedin === true`. The request body and full response are never logged because they can contain personal profile information. Eligibility still filters only on:
 
 ```ts
 woning.isPassend === true && woning.kanReageren === true
 ```
 
-Allocation model codes are displayed but never used to exclude a home. Every reported match says `DRY RUN → WOULD REACT`; the summary always says `0 reactions sent`.
+On the first scan, all current IDs are saved to `data/known-woningen.json` as a baseline and none are reported as new. Later scans report only IDs absent from that state. Each new result includes its first detection time in `Europe/Amsterdam`. Eligible new listings say `DRY RUN → WOULD REACT`; ineligible new listings say `SKIP`. Both are persisted as known before they are reported. The summary always says `0 reactions sent`.
 
-If the state is missing or the actual offer API does not return an authenticated profile, the scan stops with `SESSION/API PROFILE NOT AUTHENTICATED` and asks you to run `npm run login`.
+Missing state creates a baseline. Corrupted or unreadable state fails closed without classifying listings as new. If the offer API does not return an authenticated profile, the scan stops with `SESSION/API PROFILE NOT AUTHENTICATED` and asks you to run `npm run login`.
 
 ## Checks
 
 ```bash
 npm run typecheck
 npm run build
+npm test
 ```
 
 ## Structure
@@ -60,9 +63,13 @@ npm run build
 - `src/api`: frontend request capture, authenticated-response validation, read-only search pagination
 - `src/woningen`: raw/normalized types, normalization, eligibility filter
 - `src/dry-run`: console-only result reporting
+- `src/scanner`: duplicate-safe new-listing detection
+- `src/poller`: sequential adaptive polling and graceful wait cancellation
+- `src/scheduler`: pure Amsterdam-time mode, boundary, and delay calculations
+- `src/state`: validated loading and atomic saving of known IDs
 - `src/config`: environment validation
 - `src/utils`: timestamped logging
 
 ## Safety boundary
 
-Stage 1 has no mutation or reaction implementation. Its only POST requests repeat the captured read-only `actueel-aanbod` search payload for pagination. No request is made to a reaction or form-submission endpoint.
+Stage 3.2 has no mutation or reaction implementation. Its only POST requests repeat the captured read-only `actueel-aanbod` search payload for pagination. No request is made to a reaction or form-submission endpoint.

@@ -1,44 +1,33 @@
-import { chromium } from "playwright";
-import { fetchActueelAanbod, SessionExpiredError } from "./api/aanbod.js";
-import { STORAGE_STATE_PATH, storageStateExists } from "./auth/storage.js";
+import { storageStateExists } from "./auth/storage.js";
 import { loadScanConfig } from "./config/env.js";
-import { reportEligible, reportSummary } from "./dry-run/reporter.js";
+import { runPoller } from "./poller/poller.js";
+import { scan } from "./scanner/scan.js";
 import { logger } from "./utils/logger.js";
-import { filterEligible } from "./woningen/filter.js";
-import { normalizeWoningen } from "./woningen/normalize.js";
-
-function expiredAndExit(): void {
-  logger.error("SESSION/API PROFILE NOT AUTHENTICATED");
-  console.error("Run: npm run login");
-}
 
 async function main(): Promise<void> {
   const config = loadScanConfig();
   if (!(await storageStateExists())) {
-    expiredAndExit();
-    process.exitCode = 1;
-    return;
+    throw new Error("Authentication state is missing. Run: npm run login");
   }
 
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const context = await browser.newContext({ storageState: STORAGE_STATE_PATH });
-    const raw = await fetchActueelAanbod(context, config.aanbodPageUrl);
-    logger.info(`Received: ${raw.length} unique woningen`);
-    const woningen = normalizeWoningen(raw);
-    const eligible = filterEligible(woningen);
-    logger.info(`Eligible: ${eligible.length}`);
-    reportEligible(eligible);
-    reportSummary(woningen.length, eligible.length);
-  } catch (error: unknown) {
-    if (error instanceof SessionExpiredError) {
-      expiredAndExit();
-      process.exitCode = 1;
-      return;
+  const shutdown = new AbortController();
+  const requestShutdown = (): void => {
+    if (!shutdown.signal.aborted) {
+      logger.info("Shutdown requested...");
+      shutdown.abort();
     }
-    throw error;
+  };
+  process.once("SIGINT", requestShutdown);
+  process.once("SIGTERM", requestShutdown);
+
+  try {
+    await runPoller(() => scan(config), {
+      intervals: config.pollingIntervals,
+      signal: shutdown.signal,
+    });
   } finally {
-    await browser.close();
+    process.removeListener("SIGINT", requestShutdown);
+    process.removeListener("SIGTERM", requestShutdown);
   }
 }
 

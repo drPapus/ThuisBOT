@@ -1,11 +1,13 @@
 {
-  "name": "thuispoort-scanner-stage-1",
+  "name": "thuispoort-scanner-stage-3-2",
   "version": "1.0.0",
   "private": true,
-  "description": "Read-only dry-run scanner for the current Thuispoort housing offer",
+  "description": "Read-only adaptive polling scanner with new-listing detection for Thuispoort",
   "scripts": {
     "login": "tsx src/auth/login.ts",
     "scan": "tsx src/index.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "test:stage2-local": "tsx --test tests/stage2-local.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
   },
