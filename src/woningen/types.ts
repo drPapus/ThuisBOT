@@ -1,9 +1,16 @@
+export interface RawCity {
+  id?: unknown;
+  name?: unknown;
+  gemeenteId?: unknown;
+}
+
 export interface RawWoning {
   id?: unknown;
   urlKey?: unknown;
   street?: unknown;
   houseNumber?: unknown;
-  city?: unknown;
+  houseNumberAddition?: unknown;
+  city?: RawCity | null;
   publicationDate?: unknown;
   closingDate?: unknown;
   toewijzingID?: unknown;
@@ -22,11 +29,13 @@ export interface NormalizedWoning {
   urlKey?: string;
   street?: string;
   houseNumber?: string;
+  houseNumberAddition?: string;
   city?: string;
   publicationDate?: string;
   closingDate?: string;
   toewijzingID?: string | number;
   modelCode?: string;
+  loggedIn: boolean;
   isPassend: boolean;
   kanReageren: boolean;
 }

@@ -8,7 +8,8 @@ function yesNo(value: boolean): "YES" | "NO" {
 export function reportEligible(woningen: NormalizedWoning[]): void {
   for (const woning of woningen) {
     logger.info(`NEW: #${woning.id}`);
-    console.log(`Address: ${[woning.street, woning.houseNumber].filter(Boolean).join(" ") || "Unknown"}`);
+    const houseNumber = [woning.houseNumber, woning.houseNumberAddition].filter(Boolean).join("");
+    console.log(`Address: ${[woning.street, houseNumber].filter(Boolean).join(" ") || "Unknown"}`);
     console.log(`City: ${woning.city ?? "Unknown"}`);
     console.log(`Model: ${woning.modelCode ?? "Unknown"}`);
     console.log(`Passend: ${yesNo(woning.isPassend)}`);
