@@ -16,7 +16,6 @@ export interface DwellingReactionInput {
 }
 
 export interface PreparedReaction {
-  endpoint: "/portal/object/frontend/react/format/json";
   method: "POST";
   contentType: "application/x-www-form-urlencoded; charset=UTF-8";
   dwellingId: string;
@@ -32,6 +31,7 @@ export interface PreparedReaction {
 export type PreparationFailureReason =
   | "SESSION_EXPIRED"
   | "MISSING_DWELLING_ID"
+  | "DWELLING_ID_MISMATCH"
   | "NOT_PASSEND"
   | "CANNOT_REACT"
   | "ALREADY_REACTED"

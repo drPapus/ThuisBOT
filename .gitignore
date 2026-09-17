@@ -4,6 +4,7 @@ dist/
 .auth/
 captures/
 data/
+.state/
 playwright-report/
 test-results/
 *.log

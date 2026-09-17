@@ -6,8 +6,6 @@ import type {
   ReactionPreparationResult,
 } from "./types.js";
 
-export const REACTION_ENDPOINT = "/portal/object/frontend/react/format/json" as const;
-
 function presentIdentifier(value: string | number | undefined): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   if (typeof value === "string" && value.trim() !== "") return value;
@@ -83,7 +81,6 @@ export function prepareReaction(
   }
 
   const prepared: PreparedReaction = {
-    endpoint: REACTION_ENDPOINT,
     method: "POST",
     contentType: "application/x-www-form-urlencoded; charset=UTF-8",
     dwellingId,

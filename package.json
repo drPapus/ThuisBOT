@@ -7,9 +7,11 @@
     "login": "tsx src/auth/login.ts",
     "capture": "tsx src/capture/reactionCapture.ts",
     "prepare-reaction": "tsx src/reaction/prepareReactionCli.ts",
+    "react-once": "tsx src/reaction/reactOnceCli.ts",
     "scan": "tsx src/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:reaction-preparation": "tsx --test tests/reaction-preparation.test.ts",
+    "test:react-once": "tsx --test tests/react-once.test.ts",
     "test:stage2-local": "tsx --test tests/stage2-local.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
