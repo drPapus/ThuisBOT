@@ -13,6 +13,7 @@ export interface RawWoning {
   city?: RawCity | null;
   publicationDate?: unknown;
   closingDate?: unknown;
+  assignmentID?: unknown;
   toewijzingID?: unknown;
   toewijzingModelCategorie?: { code?: unknown } | null;
   reactionData?: {
@@ -20,6 +21,9 @@ export interface RawWoning {
     isPassend?: unknown;
     kanReageren?: unknown;
     zoekprofielMatch?: unknown;
+    action?: unknown;
+    label?: unknown;
+    url?: unknown;
   } | null;
   [key: string]: unknown;
 }
