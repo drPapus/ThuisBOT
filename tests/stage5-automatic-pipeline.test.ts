@@ -115,7 +115,7 @@ test("AUTO_SUBMIT defaults off and true is intentionally blocked", () => {
   assert.equal(loadAutoSubmit("false"), false);
   assert.throws(
     () => loadAutoSubmit("true"),
-    /AUTO_SUBMIT=true detected[\s\S]*Automatic submission is not enabled in Stage 5\.1[\s\S]*ABORT/,
+    /AUTO_SUBMIT=true detected[\s\S]*Automatic submission is not enabled in Stage 5\.2[\s\S]*ABORT/,
   );
 });
 
@@ -133,10 +133,10 @@ test("dev replay is single-ID, state-read-only, and has no live submit path", as
   const source = await readFile(path.resolve("src/dev/replayKnownWoning.ts"), "utf8");
   assert.match(source, /loadKnownWoningen/);
   assert.match(source, /processNewWoningen/);
-  assert.match(source, /runAndReportAutomaticPreparation/);
+  assert.match(source, /runCoordinatedAutomaticPreparation/);
   assert.match(source, /\[woning\]/);
   assert.doesNotMatch(source, /saveKnownWoningen|writeFile|rename\s*\(/);
   assert.doesNotMatch(source, /submitPreparedReactionOnce|submitReaction|reactOnceCli/i);
   assert.doesNotMatch(source, /context\.request\.(?:post|put|patch|delete)/i);
-  assert.match(source, /runAndReportAutomaticPreparation\([\s\S]*?false,/);
+  assert.match(source, /runCoordinatedAutomaticPreparation\([\s\S]*?false,/);
 });

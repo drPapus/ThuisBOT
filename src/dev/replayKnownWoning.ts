@@ -3,8 +3,8 @@ import { fetchActueelAanbod, SessionExpiredError } from "../api/aanbod.js";
 import { STORAGE_STATE_PATH, storageStateExists } from "../auth/storage.js";
 import { loadScanConfig } from "../config/env.js";
 import {
-  runAndReportAutomaticPreparation,
-} from "../reaction/automaticPipeline.js";
+  runCoordinatedAutomaticPreparation,
+} from "../reaction/automaticCoordinator.js";
 import { fetchDwellingReactionDetails } from "../reaction/dwellingDetails.js";
 import { fetchReactionFormConfig } from "../reaction/formConfig.js";
 import { formatAmsterdamDateTime } from "../scheduler/scheduler.js";
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       [woning],
       formatAmsterdamDateTime(new Date()),
       async (eligible) => {
-        await runAndReportAutomaticPreparation(
+        await runCoordinatedAutomaticPreparation(
           String(eligible.id),
           eligible.modelCode,
           {
@@ -72,6 +72,7 @@ async function main(): Promise<void> {
             fetchForm: () => fetchReactionFormConfig(context, config.baseUrl),
           },
           false,
+          { staleAfterMs: config.reactionInProgressStaleMs },
         );
       },
     );

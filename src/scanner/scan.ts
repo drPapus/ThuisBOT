@@ -4,8 +4,8 @@ import { STORAGE_STATE_PATH } from "../auth/storage.js";
 import type { ScanConfig } from "../config/env.js";
 import { reportSummary } from "../dry-run/reporter.js";
 import {
-  runAndReportAutomaticPreparation,
-} from "../reaction/automaticPipeline.js";
+  runCoordinatedAutomaticPreparation,
+} from "../reaction/automaticCoordinator.js";
 import { fetchDwellingReactionDetails } from "../reaction/dwellingDetails.js";
 import { fetchReactionFormConfig } from "../reaction/formConfig.js";
 import { formatAmsterdamDateTime } from "../scheduler/scheduler.js";
@@ -54,7 +54,7 @@ export async function scan(config: ScanConfig): Promise<void> {
         formatAmsterdamDateTime(new Date()),
         async (woning) => {
           try {
-            await runAndReportAutomaticPreparation(
+            await runCoordinatedAutomaticPreparation(
               String(woning.id),
               woning.modelCode,
               {
@@ -67,6 +67,7 @@ export async function scan(config: ScanConfig): Promise<void> {
                 fetchForm: () => fetchReactionFormConfig(context, config.baseUrl),
               },
               config.autoSubmit,
+              { staleAfterMs: config.reactionInProgressStaleMs },
             );
           } catch (error: unknown) {
             logger.error(

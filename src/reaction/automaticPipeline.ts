@@ -14,8 +14,8 @@ export async function runAutomaticPreparationPipeline(
   dependencies: ReactionPreparationDependencies,
   autoSubmit: false,
 ): Promise<AutomaticPreparationResult> {
-  // Stage 5.1 deliberately has no submission dependency or branch.
-  void autoSubmit;
+  // The automatic pipeline deliberately has no submission dependency or branch.
+  if (autoSubmit !== false) throw new Error("AUTO_SUBMIT=true is forbidden in Stage 5.2; ABORT");
   if (!(await dependencies.isPresentInAanbod(dwellingId))) {
     return {
       status: "ABORTED",

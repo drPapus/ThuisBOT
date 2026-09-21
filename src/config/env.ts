@@ -10,6 +10,7 @@ export interface ScanConfig extends LoginConfig {
   aanbodPageUrl: string;
   pollingIntervals: PollingIntervals;
   autoSubmit: false;
+  reactionInProgressStaleMs: number;
 }
 
 const MIN_POLL_INTERVAL_MS = 10_000;
@@ -43,10 +44,22 @@ export function loadAutoSubmit(value = process.env.AUTO_SUBMIT): false {
   if (normalized === undefined || normalized === "" || normalized === "false") return false;
   if (normalized === "true") {
     throw new Error(
-      "AUTO_SUBMIT=true detected\nAutomatic submission is not enabled in Stage 5.1\nABORT",
+      "AUTO_SUBMIT=true detected\nAutomatic submission is not enabled in Stage 5.2\nABORT",
     );
   }
-  throw new Error("AUTO_SUBMIT must be false in Stage 5.1.");
+  throw new Error("AUTO_SUBMIT must be false in Stage 5.2.");
+}
+
+export function loadReactionInProgressStaleMs(
+  value = process.env.REACTION_IN_PROGRESS_STALE_MS,
+): number {
+  if (value === undefined || value.trim() === "") return 15 * 60 * 1000;
+  if (!/^\d+$/.test(value)) throw new Error("REACTION_IN_PROGRESS_STALE_MS must be milliseconds.");
+  const milliseconds = Number(value);
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 60_000) {
+    throw new Error("REACTION_IN_PROGRESS_STALE_MS must be at least 60000.");
+  }
+  return milliseconds;
 }
 
 function requiredUrl(name: string, value: string | undefined): string {
@@ -85,5 +98,6 @@ export function loadScanConfig(): ScanConfig {
       : new URL("/aanbod/te-huur", baseUrl).toString(),
     pollingIntervals: loadPollingIntervals(),
     autoSubmit: loadAutoSubmit(),
+    reactionInProgressStaleMs: loadReactionInProgressStaleMs(),
   };
 }
