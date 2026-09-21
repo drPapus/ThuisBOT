@@ -102,7 +102,9 @@ test("CLI is a thin coordinator client with no poller or independent POST implem
   assert.match(cli, /runCoordinatedAutomaticPreparation/);
   assert.match(cli, /createAutomaticLiveDependencies/);
   assert.match(cli, /fetchActueelAanbod/);
-  assert.match(cli, /processLiveSubmitBudget\.used/);
+  assert.match(cli, /liveSafety\.attemptsUsed/);
+  assert.match(cli, /performStartupSafetyAudit\(liveSafety/);
+  assert.match(cli, /liveSafety,/);
   assert.doesNotMatch(`${cli}\n${flow}`, /runPoller|setInterval|setTimeout/);
   assert.doesNotMatch(`${cli}\n${flow}`, /context\.request\.post|submitPreparedReactionOnce/);
   const printedStatements = cli.split("\n").filter((line) => line.includes("console.log")).join("\n");

@@ -11,7 +11,12 @@ export type ReactionJournalEventName =
   | "VERIFICATION_RESULT"
   | "SUCCESS"
   | "FAILED"
-  | "UNKNOWN";
+  | "UNKNOWN"
+  | "CIRCUIT_OPENED"
+  | "LIVE_ATTEMPT_BLOCKED"
+  | "RUN_LIMIT_EXHAUSTED"
+  | "RECOVERY_STARTED"
+  | "RECOVERY_RESULT";
 
 export interface ReactionJournalEvent {
   timestamp: string;
@@ -39,6 +44,7 @@ export function validateJournalEvent(value: unknown): ReactionJournalEvent {
   const names: ReactionJournalEventName[] = [
     "PREPARATION_STARTED", "PREPARED", "PREPARATION_ABORTED", "SUBMIT_STARTED",
     "SUBMIT_RESPONSE", "VERIFICATION_STARTED", "VERIFICATION_RESULT", "SUCCESS", "FAILED", "UNKNOWN",
+    "CIRCUIT_OPENED", "LIVE_ATTEMPT_BLOCKED", "RUN_LIMIT_EXHAUSTED", "RECOVERY_STARTED", "RECOVERY_RESULT",
   ];
   if (
     !nonEmpty(event.timestamp) || Number.isNaN(Date.parse(event.timestamp)) ||

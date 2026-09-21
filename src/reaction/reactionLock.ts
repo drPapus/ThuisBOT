@@ -3,6 +3,13 @@ import path from "node:path";
 
 const localTails = new Map<string, Promise<void>>();
 
+export class ReactionLockIntegrityError extends Error {
+  constructor(cause: unknown) {
+    super(`Reaction lock integrity failure: ${String(cause)}`);
+    this.name = "ReactionLockIntegrityError";
+  }
+}
+
 async function wait(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -71,16 +78,27 @@ export async function withGlobalReactionLock<T>(
 
   let handle: FileHandle | undefined;
   try {
-    handle = await acquireFileLock(lockPath, staleAfterMs);
+    try {
+      handle = await acquireFileLock(lockPath, staleAfterMs);
+    } catch (error: unknown) {
+      throw new ReactionLockIntegrityError(error);
+    }
     return await operation();
   } finally {
-    if (handle) {
-      await handle.close();
-      await unlink(lockPath).catch((error: unknown) => {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      });
+    try {
+      if (handle) {
+        try {
+          await handle.close();
+          await unlink(lockPath);
+        } catch (error: unknown) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw new ReactionLockIntegrityError(error);
+          }
+        }
+      }
+    } finally {
+      releaseLocal();
+      if (localTails.get(lockPath) === current) localTails.delete(lockPath);
     }
-    releaseLocal();
-    if (localTails.get(lockPath) === current) localTails.delete(lockPath);
   }
 }

@@ -1,5 +1,10 @@
 import "dotenv/config";
 import type { PollingIntervals } from "../scheduler/scheduler.js";
+import {
+  DEFAULT_MAX_LIVE_ATTEMPTS_PER_RUN,
+  DEFAULT_MIN_LIVE_SUBMIT_INTERVAL_MS,
+  HARD_MAX_LIVE_ATTEMPTS_PER_RUN,
+} from "../reaction/liveSafety.js";
 
 export interface LoginConfig {
   baseUrl: string;
@@ -11,6 +16,8 @@ export interface ScanConfig extends LoginConfig {
   pollingIntervals: PollingIntervals;
   autoSubmit: boolean;
   reactionInProgressStaleMs: number;
+  maxLiveSubmitsPerRun: number;
+  minLiveSubmitIntervalMs: number;
 }
 
 const MIN_POLL_INTERVAL_MS = 10_000;
@@ -58,6 +65,35 @@ export function loadReactionInProgressStaleMs(
   return milliseconds;
 }
 
+function boundedWholeNumber(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum?: number,
+): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be a whole number.`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || (maximum !== undefined && parsed > maximum)) {
+    throw new Error(`${name} must be between ${minimum} and ${maximum ?? "the safe integer limit"}.`);
+  }
+  return parsed;
+}
+
+export function loadMaxLiveSubmitsPerRun(value = process.env.MAX_LIVE_SUBMITS_PER_RUN): number {
+  return boundedWholeNumber(
+    "MAX_LIVE_SUBMITS_PER_RUN", value, DEFAULT_MAX_LIVE_ATTEMPTS_PER_RUN, 1,
+    HARD_MAX_LIVE_ATTEMPTS_PER_RUN,
+  );
+}
+
+export function loadMinLiveSubmitIntervalMs(value = process.env.MIN_LIVE_SUBMIT_INTERVAL_MS): number {
+  return boundedWholeNumber(
+    "MIN_LIVE_SUBMIT_INTERVAL_MS", value, DEFAULT_MIN_LIVE_SUBMIT_INTERVAL_MS, 0,
+  );
+}
+
 function requiredUrl(name: string, value: string | undefined): string {
   if (!value || value.startsWith("<")) {
     throw new Error(`${name} is not configured. Copy .env.example to .env and set it.`);
@@ -95,5 +131,7 @@ export function loadScanConfig(): ScanConfig {
     pollingIntervals: loadPollingIntervals(),
     autoSubmit: loadAutoSubmit(),
     reactionInProgressStaleMs: loadReactionInProgressStaleMs(),
+    maxLiveSubmitsPerRun: loadMaxLiveSubmitsPerRun(),
+    minLiveSubmitIntervalMs: loadMinLiveSubmitIntervalMs(),
   };
 }

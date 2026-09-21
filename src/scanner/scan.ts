@@ -7,6 +7,8 @@ import {
   runCoordinatedAutomaticPreparation,
 } from "../reaction/automaticCoordinator.js";
 import { createAutomaticLiveDependencies } from "../reaction/automaticLiveAdapter.js";
+import { createLiveSafetyController, type LiveSafetyController } from "../reaction/liveSafety.js";
+import { performStartupSafetyAudit } from "../reaction/reactionSafety.js";
 import { fetchDwellingReactionDetails } from "../reaction/dwellingDetails.js";
 import { fetchReactionFormConfig } from "../reaction/formConfig.js";
 import { formatAmsterdamDateTime } from "../scheduler/scheduler.js";
@@ -21,12 +23,38 @@ function reportExpiredSession(): void {
   console.error("Run: npm run login");
 }
 
-export async function scan(config: ScanConfig): Promise<void> {
+export interface AutomaticLiveRuntime {
+  safety: LiveSafetyController;
+  startupAudited: boolean;
+}
+
+export function createAutomaticLiveRuntime(config: ScanConfig): AutomaticLiveRuntime {
+  return {
+    safety: createLiveSafetyController({
+      maxAttempts: config.maxLiveSubmitsPerRun,
+      minIntervalMs: config.minLiveSubmitIntervalMs,
+    }),
+    startupAudited: false,
+  };
+}
+
+export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRuntime): Promise<void> {
   // Load state before fetching so corrupted/unreadable state always fails closed.
   const loadedState = await loadKnownWoningen();
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ storageState: STORAGE_STATE_PATH });
+    const runtime = suppliedRuntime ?? createAutomaticLiveRuntime(config);
+    const live = config.autoSubmit ? createAutomaticLiveDependencies(context, config.baseUrl) : undefined;
+    if (config.autoSubmit && !runtime.startupAudited && live) {
+      const audit = await performStartupSafetyAudit(runtime.safety, {
+        verify: live.verify,
+        staleAfterMs: config.reactionInProgressStaleMs,
+      });
+      runtime.startupAudited = true;
+      logger.info(`CIRCUIT ............ ${audit.circuitOpen ? "OPEN" : "CLOSED"}`);
+      if (audit.reason) logger.error(`CIRCUIT REASON ..... ${audit.reason}`);
+    }
     const raw = await fetchActueelAanbod(context, config.aanbodPageUrl);
     const woningen = normalizeWoningen(raw);
     const uniqueCurrent = detectNewWoningen(woningen, []).current;
@@ -70,7 +98,8 @@ export async function scan(config: ScanConfig): Promise<void> {
               config.autoSubmit,
               {
                 staleAfterMs: config.reactionInProgressStaleMs,
-                ...(config.autoSubmit && { live: createAutomaticLiveDependencies(context, config.baseUrl) }),
+                liveSafety: runtime.safety,
+                ...(live && { live }),
               },
             );
           } catch (error: unknown) {

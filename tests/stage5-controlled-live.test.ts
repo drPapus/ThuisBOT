@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { AutomaticLiveDependencies } from "../src/reaction/automaticLiveAdapter.js";
 import { runCoordinatedAutomaticPreparation } from "../src/reaction/automaticCoordinator.js";
-import { createLiveSubmitBudget } from "../src/reaction/liveSubmitBudget.js";
+import { createLiveSafetyController } from "../src/reaction/liveSafety.js";
 import { REACTION_ENDPOINT } from "../src/reaction/reactionEndpoint.js";
 import { appendReactionJournalEvent } from "../src/state/reactionJournal.js";
 import { loadReactionState, saveReactionState } from "../src/state/reactionState.js";
@@ -60,13 +60,13 @@ async function run(
   id: string,
   autoSubmit: boolean,
   liveDependencies: AutomaticLiveDependencies | undefined,
-  submitBudget = createLiveSubmitBudget(),
+  liveSafety = createLiveSafetyController({ maxAttempts: 10, minIntervalMs: 0 }),
   extra: Record<string, unknown> = {},
 ) {
   return runCoordinatedAutomaticPreparation(id, "random", preparation(id), autoSubmit, {
     statePath: state,
     journalPath: journal,
-    liveBudget: submitBudget,
+    liveSafety,
     createAttemptId: () => `attempt-${id}`,
     ...(liveDependencies && { live: liveDependencies }),
     ...extra,
@@ -91,14 +91,14 @@ test("controlled submit calls exactly once and independently verifies SUCCESS", 
   assert.equal(record?.attemptId, "attempt-15050");
 });
 
-test("one-per-process budget blocks a second dwelling", async (t) => {
+test("different dwellings can submit sequentially in one process", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  const budget = createLiveSubmitBudget();
-  await run(files.state, files.journal, "15050", true, live("15050", calls), budget);
-  await run(files.state, files.journal, "15051", true, live("15051", calls), budget);
-  assert.equal(calls.count, 1);
-  assert.equal(budget.used, 1);
+  const safety = createLiveSafetyController({ maxAttempts: 10, minIntervalMs: 0 });
+  await run(files.state, files.journal, "15050", true, live("15050", calls), safety);
+  await run(files.state, files.journal, "15051", true, live("15051", calls), safety);
+  assert.equal(calls.count, 2);
+  assert.equal(safety.attemptsUsed, 2);
 });
 
 test("timeout evidence plus reacted verification is SUCCESS without retry", async (t) => {
@@ -136,6 +136,21 @@ test("HTTP 200 with confirmed not reacted is UNKNOWN, never SUCCESS", async (t) 
   assert.equal((await loadReactionState(files.state)).records[0]?.status, "UNKNOWN");
 });
 
+test("post-submit UNKNOWN opens circuit and blocks another dwelling", async (t) => {
+  const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
+  const calls = { count: 0 };
+  const safety = createLiveSafetyController({ maxAttempts: 10, minIntervalMs: 0 });
+  await run(files.state, files.journal, "15050", true, live("15050", calls), safety);
+  await run(files.state, files.journal, "15051", true, live(
+    "15051", calls, { status: "AMBIGUOUS", reason: "TIMEOUT" },
+    ["CONFIRMED_NOT_REACTED", "INDETERMINATE"],
+  ), safety);
+  await run(files.state, files.journal, "15052", true, live("15052", calls), safety);
+  assert.equal(calls.count, 2);
+  assert.equal(safety.circuit.reason, "UNKNOWN_RESULT");
+  assert.equal((await loadReactionState(files.state)).records.find((r) => r.dwellingId === "15052")?.status, "PREPARED");
+});
+
 test("already reacted before submit becomes SUCCESS with zero POST", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
@@ -162,7 +177,7 @@ test("stale preparation blocks with zero POST", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
   let clock = new Date("2026-09-21T10:00:00Z").getTime();
-  await run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSubmitBudget(), {
+  await run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSafetyController({ minIntervalMs: 0 }), {
     now: () => new Date(clock),
     appendJournal: async (event: Parameters<typeof appendReactionJournalEvent>[0], file: string) => {
       await appendReactionJournalEvent(event, file);
@@ -176,7 +191,7 @@ test("stale preparation blocks with zero POST", async (t) => {
 test("journal failure before SUBMIT_STARTED results in zero POST", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  await assert.rejects(run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSubmitBudget(), {
+  await assert.rejects(run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSafetyController({ minIntervalMs: 0 }), {
     appendJournal: async (event: Parameters<typeof appendReactionJournalEvent>[0], file: string) => {
       if (event.event === "SUBMIT_STARTED") throw new Error("journal unavailable");
       await appendReactionJournalEvent(event, file);
@@ -184,6 +199,23 @@ test("journal failure before SUBMIT_STARTED results in zero POST", async (t) => 
   }), /journal unavailable/);
   assert.equal(calls.count, 0);
   assert.equal((await loadReactionState(files.state)).records[0]?.status, "UNKNOWN");
+});
+
+test("required terminal journal failure persists post-submit UNKNOWN and opens circuit", async (t) => {
+  const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
+  const calls = { count: 0 };
+  const safety = createLiveSafetyController({ minIntervalMs: 0 });
+  await run(files.state, files.journal, "15050", true, live("15050", calls), safety, {
+    appendJournal: async (event: Parameters<typeof appendReactionJournalEvent>[0], file: string) => {
+      if (event.event === "SUCCESS") throw new Error("terminal journal unavailable");
+      await appendReactionJournalEvent(event, file);
+    },
+  });
+  assert.equal(calls.count, 1);
+  const record = (await loadReactionState(files.state)).records[0];
+  assert.equal(record?.status, "UNKNOWN");
+  assert.equal(record?.submitBoundaryCrossed, true);
+  assert.equal(safety.circuit.reason, "AUDIT_PERSISTENCE_FAILED");
 });
 
 test("persistent-state failure results in zero POST", async (t) => {
@@ -198,7 +230,7 @@ test("persistent-state failure results in zero POST", async (t) => {
 test("SUBMITTING persistence failure results in zero POST", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  await assert.rejects(run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSubmitBudget(), {
+  await assert.rejects(run(files.state, files.journal, "15050", true, live("15050", calls), createLiveSafetyController({ minIntervalMs: 0 }), {
     saveState: async (state: Parameters<typeof saveReactionState>[0], file: string) => {
       if (state.records.some((record) => record.status === "SUBMITTING")) {
         throw new Error("simulated SUBMITTING persistence failure");
@@ -220,6 +252,31 @@ test("definitive rejection plus confirmed not reacted is FAILED", async (t) => {
   assert.equal((await loadReactionState(files.state)).records[0]?.status, "FAILED");
 });
 
+test("definitive FAILED keeps circuit closed for the next different dwelling", async (t) => {
+  const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
+  const calls = { count: 0 };
+  const safety = createLiveSafetyController({ maxAttempts: 10, minIntervalMs: 0 });
+  await run(files.state, files.journal, "15050", true, live(
+    "15050", calls, { status: "DEFINITIVE_REJECTION", httpStatus: 400 },
+    ["CONFIRMED_NOT_REACTED", "CONFIRMED_NOT_REACTED"],
+  ), safety);
+  await run(files.state, files.journal, "15051", true, live("15051", calls), safety);
+  assert.equal(calls.count, 2);
+  assert.equal(safety.circuit.open, false);
+});
+
+test("run cap blocks a third coordinator submit without opening circuit", async (t) => {
+  const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
+  const calls = { count: 0 };
+  const safety = createLiveSafetyController({ maxAttempts: 2, minIntervalMs: 0 });
+  for (const id of ["15050", "15051", "15052"]) {
+    await run(files.state, files.journal, id, true, live(id, calls), safety);
+  }
+  assert.equal(calls.count, 2);
+  assert.equal(safety.attemptsUsed, 2);
+  assert.equal(safety.circuit.open, false);
+});
+
 test("SUBMITTING and all terminal states dedup after restart", async (t) => {
   const statuses = ["SUBMITTING", "UNKNOWN", "SUCCESS", "FAILED"] as const;
   for (const status of statuses) {
@@ -235,19 +292,21 @@ test("SUBMITTING and all terminal states dedup after restart", async (t) => {
   }
 });
 
-test("concurrent candidates have submit concurrency and total attempts of one", async (t) => {
+test("concurrent candidates have submit concurrency one and each can succeed", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
-  const budget = createLiveSubmitBudget();
+  const safety = createLiveSafetyController({ maxAttempts: 10, minIntervalMs: 0 });
   let active = 0;
   let maximum = 0;
   let total = 0;
-  const liveFor = (id: string): AutomaticLiveDependencies => ({
+  const liveFor = (id: string): AutomaticLiveDependencies => {
+    let verification = 0;
+    return ({
     endpoint: REACTION_ENDPOINT,
     async submit() { total += 1; active += 1; maximum = Math.max(maximum, active); await new Promise((r) => setTimeout(r, 5)); active -= 1; return { status: "ACCEPTED_RESPONSE", httpStatus: 200 }; },
-    async verify(dwelling, assignment) { return total === 0 ? { status: "CONFIRMED_NOT_REACTED", dwellingId: dwelling, assignmentId: assignment } : { status: "CONFIRMED_REACTED", dwellingId: dwelling, assignmentId: assignment }; },
-  });
-  await Promise.all(["15050", "15051", "15052"].map((id) => run(files.state, files.journal, id, true, liveFor(id), budget)));
-  assert.equal(total, 1);
+    async verify(dwelling, assignment) { return verification++ === 0 ? { status: "CONFIRMED_NOT_REACTED", dwellingId: dwelling, assignmentId: assignment } : { status: "CONFIRMED_REACTED", dwellingId: dwelling, assignmentId: assignment }; },
+  }); };
+  await Promise.all(["15050", "15051", "15052"].map((id) => run(files.state, files.journal, id, true, liveFor(id), safety)));
+  assert.equal(total, 3);
   assert.equal(maximum, 1);
 });
 
@@ -260,11 +319,12 @@ test("identity mismatch blocks before POST", async (t) => {
   assert.equal(calls.count, 0);
 });
 
-test("same attemptId cannot consume the irreversible boundary twice", () => {
-  const budget = createLiveSubmitBudget();
-  budget.consume("attempt-one");
-  assert.throws(() => budget.consume("attempt-one"), /ATTEMPT_ID_ALREADY_CONSUMED/);
-  assert.equal(budget.used, 1);
+test("same attemptId cannot cross the irreversible boundary twice", async () => {
+  const safety = createLiveSafetyController({ minIntervalMs: 0 });
+  assert.equal((await safety.reserve("attempt-one", "15050")).allowed, true);
+  assert.equal((await safety.reserve("attempt-one", "15050")).allowed, false);
+  assert.equal(safety.attemptsUsed, 1);
+  assert.equal(safety.circuit.reason, "DUPLICATE_SUBMIT_BOUNDARY");
 });
 
 test("production adapter is the sole automatic invocation of the existing submitter", async () => {

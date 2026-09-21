@@ -7,6 +7,7 @@ import {
   replaceReactionRecord,
   saveReactionState,
   transitionReactionRecord,
+  IllegalReactionTransitionError,
   type AutomaticReactionRecord,
 } from "../state/reactionState.js";
 import {
@@ -20,12 +21,9 @@ import {
   runAutomaticPreparationPipeline,
   type AutomaticPreparationResult,
 } from "./automaticPipeline.js";
-import { withGlobalReactionLock } from "./reactionLock.js";
+import { ReactionLockIntegrityError, withGlobalReactionLock } from "./reactionLock.js";
 import type { AutomaticLiveDependencies } from "./automaticLiveAdapter.js";
-import {
-  processLiveSubmitBudget,
-  type LiveSubmitBudget,
-} from "./liveSubmitBudget.js";
+import { createLiveSafetyController, type LiveSafetyController, type LiveCircuitReason } from "./liveSafety.js";
 import { classifyReactionOutcome } from "./resultClassifier.js";
 import { REACTION_ENDPOINT } from "./reactionEndpoint.js";
 
@@ -44,7 +42,7 @@ export interface AutomaticCoordinatorOptions {
   journalPath?: string;
   appendJournal?: typeof appendReactionJournalEvent;
   live?: AutomaticLiveDependencies;
-  liveBudget?: LiveSubmitBudget;
+  liveSafety?: LiveSafetyController;
   createAttemptId?: () => string;
   saveState?: typeof saveReactionState;
 }
@@ -90,7 +88,7 @@ export async function runCoordinatedAutomaticPreparation(
   const journalPath = options.journalPath ??
     (options.statePath ? `${statePath}.journal.jsonl` : REACTION_JOURNAL_PATH);
   const appendJournal = options.appendJournal ?? appendReactionJournalEvent;
-  const liveBudget = options.liveBudget ?? processLiveSubmitBudget;
+  const liveSafety = options.liveSafety ?? createLiveSafetyController();
   const createAttemptId = options.createAttemptId ?? randomUUID;
   const saveState = options.saveState ?? saveReactionState;
 
@@ -103,7 +101,7 @@ export async function runCoordinatedAutomaticPreparation(
   logger.info("DEDUP: CLEAR");
   logger.info("Waiting for reaction lock...");
 
-  return lock(async () => {
+  return lock<CoordinatedAutomaticResult>(async (): Promise<CoordinatedAutomaticResult> => {
     logger.info(`REACTION LOCK ACQUIRED: #${dwellingId}`);
     try {
       const afterLock = await blockingRecord(dwellingId, statePath, now(), staleAfterMs);
@@ -128,6 +126,24 @@ export async function runCoordinatedAutomaticPreparation(
       logger.info("STATE: IN_PROGRESS");
 
       let currentRecord = inProgress;
+      const openCircuit = async (
+        reason: LiveCircuitReason,
+        assignmentId?: string,
+        attemptId?: string,
+      ): Promise<void> => {
+        liveSafety.open(reason, dwellingId, attemptId);
+        logger.error("LIVE CIRCUIT OPEN");
+        console.log(`\nReason ............. ${reason}`);
+        console.log(`Dwelling ........... #${dwellingId}`);
+        if (attemptId) console.log(`Attempt ............ ${attemptId}`);
+        console.log("\nFurther automatic live submissions are blocked.");
+        console.log("Read-only scanning may continue.\n");
+        await appendJournal({
+          timestamp: now().toISOString(), dwellingId,
+          ...(assignmentId && { assignmentId }), ...(attemptId && { attemptId }),
+          event: "CIRCUIT_OPENED", reasonCode: reason,
+        }, journalPath).catch(() => undefined);
+      };
       try {
         const journal = (event: Omit<ReactionJournalEvent, "timestamp" | "dwellingId">) =>
           appendJournal({ timestamp: now().toISOString(), dwellingId, ...event }, journalPath);
@@ -158,6 +174,18 @@ export async function runCoordinatedAutomaticPreparation(
           ? { event: "PREPARED", assignmentId: result.prepared.assignmentId, result: autoSubmit ? "LIVE_CANDIDATE" : "WOULD_SUBMIT" }
           : { event: "PREPARATION_ABORTED", reasonCode: result.reason });
 
+        if (autoSubmit && result.status === "ABORTED" && [
+          "SESSION_EXPIRED",
+          "DWELLING_ID_MISMATCH",
+          "MISSING_ASSIGNMENT_ID",
+          "MISSING_FORM_ID",
+          "MISSING_FORM_HASH",
+          "REACTION_URL_MISMATCH",
+          "UNEXPECTED_REACTION_STATE",
+        ].includes(result.reason)) {
+          await openCircuit("INFRASTRUCTURE_CONTRADICTION");
+        }
+
         if (result.status !== "READY" || !autoSubmit) return { status: "PROCESSED", result };
 
         const prepared = result.prepared;
@@ -168,7 +196,7 @@ export async function runCoordinatedAutomaticPreparation(
             currentRecord,
             "UNKNOWN",
             now().toISOString(),
-            { reason },
+            { reason, submitBoundaryCrossed: false },
           );
           state = await loadReactionState(statePath);
           await saveState(replaceReactionRecord(state, unknown), statePath);
@@ -196,10 +224,18 @@ export async function runCoordinatedAutomaticPreparation(
           prepared.method === "POST" &&
           prepared.formId === "Portal_Form_SubmitOnly" &&
           prepared.formHash.trim() !== "" &&
-          age >= 0 && age <= MAX_PREPARED_AGE_MS &&
-          liveBudget.used < 1;
+          age >= 0 && age <= MAX_PREPARED_AGE_MS;
         if (!gateValid) {
           await blockLive(age > MAX_PREPARED_AGE_MS ? "PREPARATION_STALE" : "FINAL_SAFETY_GATE_FAILED");
+          return { status: "PROCESSED", result };
+        }
+
+        if (liveSafety.circuit.open) {
+          logger.error(`LIVE SUBMIT BLOCKED: ${liveSafety.circuit.reason ?? "CIRCUIT_OPEN"}`);
+          await journal({
+            event: "LIVE_ATTEMPT_BLOCKED", assignmentId: prepared.assignmentId,
+            reasonCode: liveSafety.circuit.reason ?? "CIRCUIT_OPEN",
+          });
           return { status: "PROCESSED", result };
         }
 
@@ -234,11 +270,21 @@ export async function runCoordinatedAutomaticPreparation(
         }
 
         const attemptId = createAttemptId();
+        const reservation = await liveSafety.reserve(attemptId, dwellingId);
+        if (!reservation.allowed) {
+          const reason = reservation.reason ?? "CIRCUIT_OPEN";
+          logger.error(reason === "RUN_LIMIT_EXHAUSTED" ? "LIVE RUN LIMIT EXHAUSTED" : "LIVE SUBMIT BLOCKED");
+          await journal({
+            event: reason === "RUN_LIMIT_EXHAUSTED" ? "RUN_LIMIT_EXHAUSTED" : "LIVE_ATTEMPT_BLOCKED",
+            assignmentId: prepared.assignmentId, attemptId, reasonCode: reason,
+          });
+          return { status: "PROCESSED", result };
+        }
         const submitting = transitionReactionRecord(
           currentRecord,
           "SUBMITTING",
           now().toISOString(),
-          { attemptId },
+          { attemptId, submitBoundaryCrossed: true },
         );
         state = await loadReactionState(statePath);
         await saveState(replaceReactionRecord(state, submitting), statePath);
@@ -246,9 +292,7 @@ export async function runCoordinatedAutomaticPreparation(
         logger.info("STATE: SUBMITTING");
         await journal({ event: "SUBMIT_STARTED", assignmentId: prepared.assignmentId, attemptId });
 
-        // The irreversible boundary: consume the one-per-process budget before exactly one call.
-        liveBudget.consume(attemptId);
-        logger.info("LIVE BUDGET ...... 1/1");
+        logger.info(`LIVE ATTEMPTS .... ${liveSafety.attemptsUsed}/${liveSafety.maxAttempts}`);
         logger.info("Sending ONE reaction POST...");
         const submission = await live.submit(prepared);
         let auditFailed = false;
@@ -273,9 +317,24 @@ export async function runCoordinatedAutomaticPreparation(
           ...(postSubmitVerification.status === "INDETERMINATE" && { reasonCode: postSubmitVerification.reason }),
         }).catch(() => { auditFailed = true; });
 
-        const outcome = auditFailed
+        let outcome = auditFailed
           ? { status: "UNKNOWN" as const, reason: "AUDIT_PERSISTENCE_FAILED" }
           : classifyReactionOutcome(submission, postSubmitVerification);
+        try {
+          await journal({
+            event: outcome.status,
+            assignmentId: prepared.assignmentId,
+            attemptId,
+            ...(outcome.status !== "SUCCESS" && { reasonCode: outcome.reason }),
+          });
+        } catch {
+          auditFailed = true;
+          outcome = { status: "UNKNOWN", reason: "AUDIT_PERSISTENCE_FAILED" };
+          await journal({
+            event: "UNKNOWN", assignmentId: prepared.assignmentId, attemptId,
+            reasonCode: "AUDIT_PERSISTENCE_FAILED",
+          }).catch(() => undefined);
+        }
         const terminal = transitionReactionRecord(
           currentRecord,
           outcome.status,
@@ -286,21 +345,31 @@ export async function runCoordinatedAutomaticPreparation(
         await saveState(replaceReactionRecord(state, terminal), statePath);
         currentRecord = terminal;
         logger.info(`STATE: ${terminal.status}`);
-        await journal({
-          event: outcome.status,
-          assignmentId: prepared.assignmentId,
-          attemptId,
-          ...(terminal.reason && { reasonCode: terminal.reason }),
-        }).catch(() => undefined);
-        logger.info("LIVE BUDGET EXHAUSTED");
+        if (auditFailed) {
+          await openCircuit("AUDIT_PERSISTENCE_FAILED", prepared.assignmentId, attemptId);
+        } else if (outcome.status === "UNKNOWN") {
+          await openCircuit("UNKNOWN_RESULT", prepared.assignmentId, attemptId);
+        }
         return { status: "PROCESSED", result };
       } catch (error: unknown) {
+        const crossedBoundary = currentRecord.status === "SUBMITTING" || currentRecord.submitBoundaryCrossed === true;
+        if (autoSubmit) {
+          const reason: LiveCircuitReason = error instanceof IllegalReactionTransitionError
+            ? "ILLEGAL_STATE_TRANSITION"
+            : crossedBoundary
+              ? "UNKNOWN_RESULT"
+              : "STATE_PERSISTENCE_FAILED";
+          await openCircuit(reason, currentRecord.assignmentId, currentRecord.attemptId);
+        }
         if (["IN_PROGRESS", "PREPARED", "SUBMITTING"].includes(currentRecord.status)) {
           const unknown = transitionReactionRecord(
             currentRecord,
             "UNKNOWN",
             now().toISOString(),
-            { reason: "UNEXPECTED_EXCEPTION" },
+            {
+              reason: "UNEXPECTED_EXCEPTION",
+              submitBoundaryCrossed: crossedBoundary,
+            },
           );
           state = await loadReactionState(statePath);
           await saveState(replaceReactionRecord(state, unknown), statePath);
@@ -319,5 +388,10 @@ export async function runCoordinatedAutomaticPreparation(
     } finally {
       logger.info(`REACTION LOCK RELEASED: #${dwellingId}`);
     }
-  }, `${statePath}.lock`, staleAfterMs);
+  }, `${statePath}.lock`, staleAfterMs).catch(async (error: unknown) => {
+    if (autoSubmit && error instanceof ReactionLockIntegrityError) {
+      liveSafety.open("LOCK_INTEGRITY_FAILURE", dwellingId);
+    }
+    throw error;
+  });
 }

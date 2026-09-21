@@ -18,6 +18,15 @@ export interface AutomaticReactionRecord {
   updatedAt: string;
   reason?: string;
   attemptId?: string;
+  /** True only after the durable SUBMITTING boundary has been crossed. */
+  submitBoundaryCrossed?: boolean;
+}
+
+export class IllegalReactionTransitionError extends Error {
+  constructor(from: AutomaticReactionStatus, to: AutomaticReactionStatus) {
+    super(`Illegal automatic reaction state transition: ${from} -> ${to}`);
+    this.name = "IllegalReactionTransitionError";
+  }
 }
 
 export interface AutomaticReactionState {
@@ -45,7 +54,8 @@ function parseRecord(value: unknown): AutomaticReactionRecord {
     Number.isNaN(Date.parse(record.firstSeenAt)) ||
     Number.isNaN(Date.parse(record.updatedAt)) ||
     (record.reason !== undefined && typeof record.reason !== "string") ||
-    (record.attemptId !== undefined && !isNonEmptyString(record.attemptId))
+    (record.attemptId !== undefined && !isNonEmptyString(record.attemptId)) ||
+    (record.submitBoundaryCrossed !== undefined && typeof record.submitBoundaryCrossed !== "boolean")
   ) {
     throw new Error("record has an invalid structure");
   }
@@ -57,6 +67,9 @@ function parseRecord(value: unknown): AutomaticReactionRecord {
     updatedAt: record.updatedAt,
     ...(record.reason !== undefined && { reason: record.reason as string }),
     ...(record.attemptId !== undefined && { attemptId: record.attemptId as string }),
+    ...(record.submitBoundaryCrossed !== undefined && {
+      submitBoundaryCrossed: record.submitBoundaryCrossed as boolean,
+    }),
   };
 }
 
@@ -167,10 +180,13 @@ export function transitionReactionRecord(
   current: AutomaticReactionRecord,
   status: AutomaticReactionStatus,
   updatedAt: string,
-  updates: Pick<AutomaticReactionRecord, "assignmentId" | "reason" | "attemptId"> = {},
+  updates: Pick<
+    AutomaticReactionRecord,
+    "assignmentId" | "reason" | "attemptId" | "submitBoundaryCrossed"
+  > = {},
 ): AutomaticReactionRecord {
   if (!LEGAL_TRANSITIONS[current.status].includes(status)) {
-    throw new Error(`Illegal automatic reaction state transition: ${current.status} -> ${status}`);
+    throw new IllegalReactionTransitionError(current.status, status);
   }
   return {
     ...current,
@@ -178,4 +194,11 @@ export function transitionReactionRecord(
     status,
     updatedAt,
   };
+}
+
+/** Backward-compatible interpretation of records written before Stage 5.5. */
+export function hasCrossedSubmitBoundary(record: AutomaticReactionRecord): boolean {
+  if (record.submitBoundaryCrossed !== undefined) return record.submitBoundaryCrossed;
+  if (record.status === "SUBMITTING") return true;
+  return record.status === "UNKNOWN" && record.attemptId !== undefined;
 }

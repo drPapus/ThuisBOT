@@ -13,6 +13,7 @@
     "reaction-state": "tsx src/dev/reactionStateCli.ts",
     "verify-reaction": "tsx src/dev/verifyReactionCli.ts",
     "reaction-journal": "tsx src/dev/reactionJournalCli.ts",
+    "reaction-safety": "tsx src/dev/reactionSafetyCli.ts",
     "scan": "tsx src/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:reaction-preparation": "tsx --test tests/reaction-preparation.test.ts",

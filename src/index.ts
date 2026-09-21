@@ -1,17 +1,19 @@
 import { storageStateExists } from "./auth/storage.js";
 import { loadScanConfig } from "./config/env.js";
 import { runPoller } from "./poller/poller.js";
-import { scan } from "./scanner/scan.js";
+import { createAutomaticLiveRuntime, scan } from "./scanner/scan.js";
 import { logger } from "./utils/logger.js";
 
 async function main(): Promise<void> {
   const config = loadScanConfig();
   if (config.autoSubmit) {
-    logger.info("AUTO SUBMIT: ENABLED");
-    logger.info("CONTROLLED LIVE MODE");
-    logger.info("MAX LIVE SUBMITS THIS PROCESS: 1");
+    logger.info("AUTO SUBMIT ........ ENABLED");
+    logger.info("MODE ............... AUTONOMOUS");
+    logger.info(`MAX LIVE ATTEMPTS .. ${config.maxLiveSubmitsPerRun}`);
+    logger.info(`MIN INTERVAL ....... ${config.minLiveSubmitIntervalMs} ms`);
   } else {
-    logger.info("AUTO SUBMIT: DISABLED");
+    logger.info("AUTO SUBMIT ........ DISABLED");
+    logger.info("MODE ............... DRY RUN");
   }
   if (!(await storageStateExists())) {
     throw new Error("Authentication state is missing. Run: npm run login");
@@ -28,7 +30,8 @@ async function main(): Promise<void> {
   process.once("SIGTERM", requestShutdown);
 
   try {
-    await runPoller(() => scan(config), {
+    const liveRuntime = createAutomaticLiveRuntime(config);
+    await runPoller(() => scan(config, liveRuntime), {
       intervals: config.pollingIntervals,
       signal: shutdown.signal,
     });

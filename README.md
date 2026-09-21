@@ -57,6 +57,26 @@ npm run build
 npm test
 ```
 
+## Stage 5.5 live safety
+
+Automatic submission remains off by default. `MAX_LIVE_SUBMITS_PER_RUN` defaults to 10 and may
+not exceed 20; `MIN_LIVE_SUBMIT_INTERVAL_MS` defaults to 2000. Different dwellings are serialized
+under the global lock, while each attempt ID can cross the submit boundary once. A durable
+post-submit `UNKNOWN` or unresolved `SUBMITTING` record reconstructs an open circuit after restart.
+The circuit never closes on a timer or successful scan.
+
+Inspect the persisted safety state without making portal requests:
+
+```bash
+npm run reaction-safety -- status
+```
+
+Keep `AUTO_SUBMIT=false` for dry runs. Production activation is an explicit operator action:
+
+```bash
+AUTO_SUBMIT=true npm run scan
+```
+
 ## Structure
 
 - `src/auth`: manual login, storage-state persistence, session validation
