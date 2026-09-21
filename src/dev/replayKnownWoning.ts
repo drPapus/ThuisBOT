@@ -60,7 +60,7 @@ async function main(): Promise<void> {
       [woning],
       formatAmsterdamDateTime(new Date()),
       async (eligible) => {
-        await runCoordinatedAutomaticPreparation(
+        const coordinated = await runCoordinatedAutomaticPreparation(
           String(eligible.id),
           eligible.modelCode,
           {
@@ -75,6 +75,7 @@ async function main(): Promise<void> {
           false,
           { staleAfterMs: config.reactionInProgressStaleMs },
         );
+        return coordinated.outcome;
       },
     );
     logger.info("DEV REPLAY COMPLETE — production baseline was not modified");

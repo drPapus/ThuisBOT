@@ -84,11 +84,12 @@ test("dry run makes zero live submit calls", async (t) => {
 test("controlled submit calls exactly once and independently verifies SUCCESS", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  await run(files.state, files.journal, "15050", true, live("15050", calls));
+  const coordinated = await run(files.state, files.journal, "15050", true, live("15050", calls));
   const record = (await loadReactionState(files.state)).records[0];
   assert.equal(calls.count, 1);
   assert.equal(record?.status, "SUCCESS");
   assert.equal(record?.attemptId, "attempt-15050");
+  assert.deepEqual(coordinated.outcome, { kind: "SUCCESS", liveAttempted: true });
 });
 
 test("different dwellings can submit sequentially in one process", async (t) => {
@@ -154,13 +155,14 @@ test("post-submit UNKNOWN opens circuit and blocks another dwelling", async (t) 
 test("already reacted before submit becomes SUCCESS with zero POST", async (t) => {
   const files = await location(); t.after(() => rm(files.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  await run(files.state, files.journal, "15050", true, live(
+  const coordinated = await run(files.state, files.journal, "15050", true, live(
     "15050", calls, undefined, ["CONFIRMED_REACTED"],
   ));
   const record = (await loadReactionState(files.state)).records[0];
   assert.equal(calls.count, 0);
   assert.equal(record?.status, "SUCCESS");
   assert.equal(record?.reason, "ALREADY_REACTED_BEFORE_SUBMIT");
+  assert.deepEqual(coordinated.outcome, { kind: "SUCCESS", liveAttempted: false });
 });
 
 test("indeterminate pre-submit verification blocks with zero POST", async (t) => {

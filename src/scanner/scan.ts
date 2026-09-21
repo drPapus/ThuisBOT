@@ -17,6 +17,9 @@ import { logger } from "../utils/logger.js";
 import { normalizeWoningen } from "../woningen/normalize.js";
 import { detectNewWoningen } from "./detectNew.js";
 import { processNewWoningen } from "./processNewWoningen.js";
+import { createScanSummary } from "./scanSummary.js";
+import { isEligible } from "../woningen/filter.js";
+import type { AutomaticProcessingOutcome } from "../reaction/automaticCoordinator.js";
 
 function reportExpiredSession(): void {
   logger.error("SESSION/API PROFILE NOT AUTHENTICATED");
@@ -59,6 +62,7 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
     const woningen = normalizeWoningen(raw);
     const uniqueCurrent = detectNewWoningen(woningen, []).current;
     logger.info(`Received: ${uniqueCurrent.length} unique woningen`);
+    const scanAttemptStart = runtime.safety.attemptsUsed;
 
     if (!loadedState.exists) {
       logger.info("STATE: no baseline found");
@@ -66,7 +70,17 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
       logger.info("BASELINE CREATED");
       logger.info(`Known woningen: ${uniqueCurrent.length}`);
       logger.info("New: 0");
-      reportSummary(uniqueCurrent.length, 0);
+      reportSummary(createScanSummary({
+        checked: uniqueCurrent.length,
+        newCount: 0,
+        eligible: 0,
+        liveAttempts: 0,
+        outcomes: [],
+        circuitOpen: runtime.safety.circuit.open,
+        ...(runtime.safety.circuit.reason && { circuitReason: runtime.safety.circuit.reason }),
+        runLiveAttempts: runtime.safety.attemptsUsed,
+        maxLiveAttempts: runtime.safety.maxAttempts,
+      }));
       return;
     }
 
@@ -74,16 +88,18 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
     logger.info(`Known before scan: ${loadedState.state.knownIds.length}`);
     logger.info(`New: ${result.newWoningen.length}`);
 
+    let outcomes: AutomaticProcessingOutcome[] = [];
     if (result.newWoningen.length > 0) {
       // Persist first: a failed write must never emit repeatable NEW events.
       await saveKnownWoningen(result.updatedKnownIds);
       logger.info(`State updated: ${result.updatedKnownIds.length} known woningen`);
-      await processNewWoningen(
+      outcomes = await processNewWoningen(
         result.newWoningen,
         formatAmsterdamDateTime(new Date()),
         async (woning) => {
+          const candidateAttemptStart = runtime.safety.attemptsUsed;
           try {
-            await runCoordinatedAutomaticPreparation(
+            const coordinated = await runCoordinatedAutomaticPreparation(
               String(woning.id),
               woning.modelCode,
               {
@@ -102,6 +118,7 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
                 ...(live && { live }),
               },
             );
+            return coordinated.outcome;
           } catch (error: unknown) {
             logger.error(
               `Reaction preparation failed for #${woning.id}: ${
@@ -109,12 +126,23 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
               }`,
             );
             console.log("REACTION ABORTED\nNo reaction sent.\n");
+            return { kind: "UNKNOWN", liveAttempted: runtime.safety.attemptsUsed > candidateAttemptStart };
           }
         },
       );
     }
 
-    reportSummary(result.current.length, result.newWoningen.length);
+    reportSummary(createScanSummary({
+      checked: result.current.length,
+      newCount: result.newWoningen.length,
+      eligible: result.newWoningen.filter(isEligible).length,
+      liveAttempts: runtime.safety.attemptsUsed - scanAttemptStart,
+      outcomes,
+      circuitOpen: runtime.safety.circuit.open,
+      ...(runtime.safety.circuit.reason && { circuitReason: runtime.safety.circuit.reason }),
+      runLiveAttempts: runtime.safety.attemptsUsed,
+      maxLiveAttempts: runtime.safety.maxAttempts,
+    }));
   } catch (error: unknown) {
     if (error instanceof SessionExpiredError) {
       reportExpiredSession();

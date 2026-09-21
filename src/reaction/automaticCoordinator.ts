@@ -30,9 +30,19 @@ import { REACTION_ENDPOINT } from "./reactionEndpoint.js";
 export const DEFAULT_IN_PROGRESS_STALE_MS = 15 * 60 * 1000;
 export const MAX_PREPARED_AGE_MS = 30_000;
 
+export type AutomaticProcessingOutcome =
+  | { kind: "DEDUP_SKIPPED" }
+  | { kind: "ABORTED" }
+  | { kind: "DRY_RUN_PREPARED" }
+  | { kind: "CIRCUIT_BLOCKED" }
+  | { kind: "RUN_LIMIT_BLOCKED" }
+  | { kind: "SUCCESS"; liveAttempted: boolean }
+  | { kind: "FAILED"; liveAttempted: true }
+  | { kind: "UNKNOWN"; liveAttempted: boolean };
+
 export type CoordinatedAutomaticResult =
-  | { status: "SKIPPED"; previous: AutomaticReactionRecord }
-  | { status: "PROCESSED"; result: AutomaticPreparationResult };
+  | { status: "SKIPPED"; previous: AutomaticReactionRecord; outcome: { kind: "DEDUP_SKIPPED" } }
+  | { status: "PROCESSED"; result: AutomaticPreparationResult; outcome: Exclude<AutomaticProcessingOutcome, { kind: "DEDUP_SKIPPED" }> };
 
 export interface AutomaticCoordinatorOptions {
   statePath?: string;
@@ -96,7 +106,7 @@ export async function runCoordinatedAutomaticPreparation(
   const initial = await blockingRecord(dwellingId, statePath, now(), staleAfterMs);
   if (initial) {
     reportDedupHit(initial);
-    return { status: "SKIPPED", previous: initial };
+    return { status: "SKIPPED", previous: initial, outcome: { kind: "DEDUP_SKIPPED" } };
   }
   logger.info("DEDUP: CLEAR");
   logger.info("Waiting for reaction lock...");
@@ -108,7 +118,7 @@ export async function runCoordinatedAutomaticPreparation(
       if (afterLock) {
         logger.info("DEDUP RECHECK: HIT");
         reportDedupHit(afterLock);
-        return { status: "SKIPPED", previous: afterLock };
+        return { status: "SKIPPED", previous: afterLock, outcome: { kind: "DEDUP_SKIPPED" } };
       }
       logger.info("DEDUP RECHECK: CLEAR");
 
@@ -186,7 +196,12 @@ export async function runCoordinatedAutomaticPreparation(
           await openCircuit("INFRASTRUCTURE_CONTRADICTION");
         }
 
-        if (result.status !== "READY" || !autoSubmit) return { status: "PROCESSED", result };
+        if (result.status !== "READY") {
+          return { status: "PROCESSED", result, outcome: { kind: "ABORTED" } };
+        }
+        if (!autoSubmit) {
+          return { status: "PROCESSED", result, outcome: { kind: "DRY_RUN_PREPARED" } };
+        }
 
         const prepared = result.prepared;
         const preparedAt = new Date(completedAt);
@@ -227,7 +242,7 @@ export async function runCoordinatedAutomaticPreparation(
           age >= 0 && age <= MAX_PREPARED_AGE_MS;
         if (!gateValid) {
           await blockLive(age > MAX_PREPARED_AGE_MS ? "PREPARATION_STALE" : "FINAL_SAFETY_GATE_FAILED");
-          return { status: "PROCESSED", result };
+          return { status: "PROCESSED", result, outcome: { kind: "UNKNOWN", liveAttempted: false } };
         }
 
         if (liveSafety.circuit.open) {
@@ -236,7 +251,7 @@ export async function runCoordinatedAutomaticPreparation(
             event: "LIVE_ATTEMPT_BLOCKED", assignmentId: prepared.assignmentId,
             reasonCode: liveSafety.circuit.reason ?? "CIRCUIT_OPEN",
           });
-          return { status: "PROCESSED", result };
+          return { status: "PROCESSED", result, outcome: { kind: "CIRCUIT_BLOCKED" } };
         }
 
         const preSubmitVerification = await live.verify(dwellingId, prepared.assignmentId);
@@ -262,11 +277,11 @@ export async function runCoordinatedAutomaticPreparation(
             reasonCode: "ALREADY_REACTED_BEFORE_SUBMIT",
           });
           logger.info("Existing reaction independently verified; live POST skipped.");
-          return { status: "PROCESSED", result };
+          return { status: "PROCESSED", result, outcome: { kind: "SUCCESS", liveAttempted: false } };
         }
         if (preSubmitVerification.status !== "CONFIRMED_NOT_REACTED") {
           await blockLive("PRE_SUBMIT_VERIFICATION_INDETERMINATE");
-          return { status: "PROCESSED", result };
+          return { status: "PROCESSED", result, outcome: { kind: "UNKNOWN", liveAttempted: false } };
         }
 
         const attemptId = createAttemptId();
@@ -278,7 +293,11 @@ export async function runCoordinatedAutomaticPreparation(
             event: reason === "RUN_LIMIT_EXHAUSTED" ? "RUN_LIMIT_EXHAUSTED" : "LIVE_ATTEMPT_BLOCKED",
             assignmentId: prepared.assignmentId, attemptId, reasonCode: reason,
           });
-          return { status: "PROCESSED", result };
+          return {
+            status: "PROCESSED",
+            result,
+            outcome: { kind: reason === "RUN_LIMIT_EXHAUSTED" ? "RUN_LIMIT_BLOCKED" : "CIRCUIT_BLOCKED" },
+          };
         }
         const submitting = transitionReactionRecord(
           currentRecord,
@@ -350,7 +369,15 @@ export async function runCoordinatedAutomaticPreparation(
         } else if (outcome.status === "UNKNOWN") {
           await openCircuit("UNKNOWN_RESULT", prepared.assignmentId, attemptId);
         }
-        return { status: "PROCESSED", result };
+        return {
+          status: "PROCESSED",
+          result,
+          outcome: outcome.status === "SUCCESS"
+            ? { kind: "SUCCESS", liveAttempted: true }
+            : outcome.status === "FAILED"
+              ? { kind: "FAILED", liveAttempted: true }
+              : { kind: "UNKNOWN", liveAttempted: true },
+        };
       } catch (error: unknown) {
         const crossedBoundary = currentRecord.status === "SUBMITTING" || currentRecord.submitBoundaryCrossed === true;
         if (autoSubmit) {

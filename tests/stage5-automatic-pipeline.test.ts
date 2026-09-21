@@ -55,6 +55,7 @@ test("NEW but not eligible never enters the reaction pipeline", async () => {
   let pipelineCalls = 0;
   await processNewWoningen([woning(false, true)], "test time", async () => {
     pipelineCalls += 1;
+    return { kind: "ABORTED" };
   });
   assert.equal(pipelineCalls, 0);
 });
@@ -84,6 +85,7 @@ test("NEW ELIGIBLE dispatcher reaches and prints the preparation pipeline", asyn
         deps,
         false,
       );
+      return { kind: "DRY_RUN_PREPARED" };
     });
   } finally {
     console.log = originalLog;

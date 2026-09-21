@@ -59,7 +59,7 @@ test("only the explicitly selected eligible dwelling reaches coordinator once", 
     async fetchCurrentAanbod() { return [woning("15019"), woning("15020"), woning("15021")]; },
     async coordinate(selected) {
       reached.push(String(selected.id));
-      return { status: "PROCESSED", result: { status: "ABORTED", reason: "CANNOT_REACT" } };
+      return { status: "PROCESSED", result: { status: "ABORTED", reason: "CANNOT_REACT" }, outcome: { kind: "ABORTED" } };
     },
   });
   assert.deepEqual(reached, ["15020"]);
@@ -72,7 +72,7 @@ test("dry mode delegates once and has no independent submit opportunity", async 
     async coordinate() {
       // The real coordinator owns dry/live behavior; this fake models AUTO_SUBMIT=false.
       assert.equal(submitCalls, 0);
-      return { status: "PROCESSED", result: { status: "ABORTED", reason: "CANNOT_REACT" } };
+      return { status: "PROCESSED", result: { status: "ABORTED", reason: "CANNOT_REACT" }, outcome: { kind: "ABORTED" } };
     },
   });
   assert.equal(submitCalls, 0);
@@ -89,7 +89,7 @@ test("all existing blocking states are returned as dedup without bypass", async 
     };
     const result = await runAutoReactOnceSelection("15020", {
       async fetchCurrentAanbod() { return [woning("15020")]; },
-      async coordinate() { return { status: "SKIPPED", previous: record }; },
+      async coordinate() { return { status: "SKIPPED", previous: record, outcome: { kind: "DEDUP_SKIPPED" } }; },
     });
     assert.equal(result.status, "SKIPPED");
     if (result.status === "SKIPPED") assert.equal(result.previous.status, status);

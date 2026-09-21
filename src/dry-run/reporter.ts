@@ -1,6 +1,7 @@
 import type { NormalizedWoning } from "../woningen/types.js";
 import { isEligible } from "../woningen/filter.js";
 import { logger } from "../utils/logger.js";
+import type { ScanSummary } from "../scanner/scanSummary.js";
 
 function yesNo(value: boolean): "YES" | "NO" {
   return value ? "YES" : "NO";
@@ -30,9 +31,31 @@ export function reportNewWoningen(
   }
 }
 
-export function reportSummary(checked: number, newCount: number): void {
+function metric(label: string, value: number | string): void {
+  console.log(`${label.padEnd(25, ".")} ${value}`);
+}
+
+export function reportSummary(summary: ScanSummary): void {
   logger.info("SCAN COMPLETE");
-  console.log(`${checked} checked`);
-  console.log(`${newCount} new`);
-  console.log("0 reactions sent");
+  console.log("");
+  metric("Checked ", summary.checked);
+  metric("New ", summary.newCount);
+  metric("Eligible ", summary.eligible);
+  metric("Not eligible ", summary.notEligible);
+  console.log("");
+  metric("Live attempts ", summary.liveAttempts);
+  metric("Confirmed reactions ", summary.confirmedReactions);
+  metric("Failed ", summary.failed);
+  metric("Unknown ", summary.unknown);
+  metric("Aborted ", summary.aborted);
+  if (summary.dryRunPrepared > 0) metric("Dry-run prepared ", summary.dryRunPrepared);
+  console.log("");
+  metric("Dedup skipped ", summary.dedupSkipped);
+  metric("Circuit blocked ", summary.circuitBlocked);
+  metric("Run-limit blocked ", summary.runLimitBlocked);
+  console.log("");
+  metric("This scan attempts ", summary.liveAttempts);
+  metric("Run live attempts ", `${summary.runLiveAttempts}/${summary.maxLiveAttempts}`);
+  metric("Circuit ", summary.circuitOpen ? "OPEN" : "CLOSED");
+  if (summary.circuitReason) metric("Circuit reason ", summary.circuitReason);
 }
