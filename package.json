@@ -14,11 +14,13 @@
     "verify-reaction": "tsx src/dev/verifyReactionCli.ts",
     "reaction-journal": "tsx src/dev/reactionJournalCli.ts",
     "reaction-safety": "tsx src/dev/reactionSafetyCli.ts",
+    "find-unreacted": "tsx src/dev/findUnreactedCli.ts",
     "scan": "tsx src/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:reaction-preparation": "tsx --test tests/reaction-preparation.test.ts",
     "test:react-once": "tsx --test tests/react-once.test.ts",
     "test:stage5": "tsx --test tests/stage5-*.test.ts",
+    "test:find-unreacted": "tsx --test tests/find-unreacted.test.ts",
     "test:stage2-local": "tsx --test tests/stage2-local.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
