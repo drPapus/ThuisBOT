@@ -208,11 +208,12 @@ function submissionContext(responseFactory: () => unknown): { context: BrowserCo
 test("submission sends exact body once and validates success", async () => {
   const mock = submissionContext(() => ({
     ok: () => true,
+    status: () => 200,
     json: async () => ({ success: true, reactionId: 123, reactionData: { action: "remove" } }),
   }));
   assert.deepEqual(
     await submitPreparedReactionOnce(mock.context, "https://www.thuispoort.nl/", prepared()),
-    { ok: true, reactionId: 123, serverAction: "remove" },
+    { ok: true, reactionId: 123, httpStatus: 200, serverAction: "remove" },
   );
   assert.equal(mock.calls.length, 1);
   assert.equal(
@@ -225,10 +226,10 @@ test("submission sends exact body once and validates success", async () => {
 
 test("rejected, missing ID, malformed JSON, HTTP failure, and network errors never retry", async () => {
   const factories = [
-    () => ({ ok: () => true, json: async () => ({ success: false }) }),
-    () => ({ ok: () => true, json: async () => ({ success: true }) }),
-    () => ({ ok: () => true, json: async () => Promise.reject(new SyntaxError("bad JSON")) }),
-    () => ({ ok: () => false, json: async () => ({}) }),
+    () => ({ ok: () => true, status: () => 200, json: async () => ({ success: false }) }),
+    () => ({ ok: () => true, status: () => 200, json: async () => ({ success: true }) }),
+    () => ({ ok: () => true, status: () => 200, json: async () => Promise.reject(new SyntaxError("bad JSON")) }),
+    () => ({ ok: () => false, status: () => 500, json: async () => ({}) }),
     () => new Error("connection reset"),
   ];
   for (const factory of factories) {
@@ -272,6 +273,7 @@ test("live submission remains isolated from scanner, poller, and dry-run CLI", a
     "reactOnceCli.ts",
     "reactOnceFlow.ts",
     "submissionLock.ts",
+    "reactionEndpoint.ts",
   ];
   const sources = new Map(
     await Promise.all(
@@ -280,7 +282,7 @@ test("live submission remains isolated from scanner, poller, and dry-run CLI", a
   );
   const endpoint = "/portal/object/frontend/react/format/json";
   const endpointOwners = [...sources.entries()].filter(([, source]) => source.includes(endpoint));
-  assert.deepEqual(endpointOwners.map(([file]) => file), ["submitReaction.ts"]);
+  assert.deepEqual(endpointOwners.map(([file]) => file), ["reactionEndpoint.ts"]);
   assert.equal((sources.get("submitReaction.ts")?.match(/context\.request\.post\s*\(/g) ?? []).length, 1);
   assert.doesNotMatch(sources.get("submitReaction.ts") ?? "", /\b(?:for|while)\s*\(/);
   assert.doesNotMatch(sources.get("prepareReactionCli.ts") ?? "", /submitReaction|reactOnce/i);

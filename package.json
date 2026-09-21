@@ -8,6 +8,7 @@
     "capture": "tsx src/capture/reactionCapture.ts",
     "prepare-reaction": "tsx src/reaction/prepareReactionCli.ts",
     "react-once": "tsx src/reaction/reactOnceCli.ts",
+    "auto-react-once": "tsx src/dev/autoReactOnceCli.ts",
     "replay-known": "tsx src/dev/replayKnownWoning.ts",
     "reaction-state": "tsx src/dev/reactionStateCli.ts",
     "verify-reaction": "tsx src/dev/verifyReactionCli.ts",

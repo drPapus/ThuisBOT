@@ -83,14 +83,22 @@ test("central transition validation permits only the documented state graph", ()
     assert.equal(transitionReactionRecord(initial, target, "2026-09-21T09:01:00Z").status, target);
   }
   const prepared = transitionReactionRecord(initial, "PREPARED", "2026-09-21T09:01:00Z");
-  for (const target of ["SUCCESS", "FAILED", "UNKNOWN"] as AutomaticReactionStatus[]) {
+  for (const target of ["SUBMITTING", "SUCCESS", "UNKNOWN"] as AutomaticReactionStatus[]) {
     assert.equal(transitionReactionRecord(prepared, target, "2026-09-21T09:02:00Z").status, target);
   }
-  for (const terminal of ["SUCCESS", "UNKNOWN", "ABORTED"] as AutomaticReactionStatus[]) {
+  const submitting = transitionReactionRecord(prepared, "SUBMITTING", "2026-09-21T09:02:00Z");
+  for (const target of ["SUCCESS", "FAILED", "UNKNOWN"] as AutomaticReactionStatus[]) {
+    assert.equal(transitionReactionRecord(submitting, target, "2026-09-21T09:03:00Z").status, target);
+  }
+  for (const terminal of ["SUCCESS", "FAILED", "UNKNOWN", "ABORTED"] as AutomaticReactionStatus[]) {
     const record = { ...initial, status: terminal };
     assert.throws(() => transitionReactionRecord(record, "IN_PROGRESS", "2026-09-21T09:03:00Z"), /Illegal/);
     assert.throws(() => transitionReactionRecord(record, "PREPARED", "2026-09-21T09:03:00Z"), /Illegal/);
   }
+  assert.throws(
+    () => transitionReactionRecord(submitting, "PREPARED", "2026-09-21T09:04:00Z"),
+    /Illegal/,
+  );
 });
 
 test("journal appends durably in order and survives a new loader", async (t) => {

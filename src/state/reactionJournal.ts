@@ -17,6 +17,7 @@ export interface ReactionJournalEvent {
   timestamp: string;
   dwellingId: string;
   assignmentId?: string;
+  attemptId?: string;
   event: ReactionJournalEventName;
   result?: string;
   reasonCode?: string;
@@ -34,7 +35,7 @@ export function validateJournalEvent(value: unknown): ReactionJournalEvent {
     throw new Error("journal event must be an object");
   }
   const event = value as Record<string, unknown>;
-  const allowedKeys = new Set(["timestamp", "dwellingId", "assignmentId", "event", "result", "reasonCode", "httpStatus"]);
+  const allowedKeys = new Set(["timestamp", "dwellingId", "assignmentId", "attemptId", "event", "result", "reasonCode", "httpStatus"]);
   const names: ReactionJournalEventName[] = [
     "PREPARATION_STARTED", "PREPARED", "PREPARATION_ABORTED", "SUBMIT_STARTED",
     "SUBMIT_RESPONSE", "VERIFICATION_STARTED", "VERIFICATION_RESULT", "SUCCESS", "FAILED", "UNKNOWN",
@@ -44,6 +45,7 @@ export function validateJournalEvent(value: unknown): ReactionJournalEvent {
     !nonEmpty(event.dwellingId) || !names.includes(event.event as ReactionJournalEventName) ||
     Object.keys(event).some((key) => !allowedKeys.has(key)) ||
     (event.assignmentId !== undefined && !nonEmpty(event.assignmentId)) ||
+    (event.attemptId !== undefined && !nonEmpty(event.attemptId)) ||
     (event.result !== undefined && (!nonEmpty(event.result) || !/^[A-Z0-9_]+$/.test(event.result))) ||
     (event.reasonCode !== undefined && (!nonEmpty(event.reasonCode) || !/^[A-Z0-9_]+$/.test(event.reasonCode))) ||
     (event.httpStatus !== undefined && (!Number.isInteger(event.httpStatus) || Number(event.httpStatus) < 100 || Number(event.httpStatus) > 599))

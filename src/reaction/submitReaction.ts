@@ -2,8 +2,7 @@ import type { BrowserContext } from "playwright";
 import { encodePreparedReaction } from "./prepareReaction.js";
 import type { SubmissionResult } from "./liveTypes.js";
 import type { PreparedReaction } from "./types.js";
-
-const REACTION_ENDPOINT = "/portal/object/frontend/react/format/json";
+import { REACTION_ENDPOINT } from "./reactionEndpoint.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -30,30 +29,35 @@ export async function submitPreparedReactionOnce(
     return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN" };
   }
 
-  if (!response.ok()) return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN" };
+  if (!response.ok()) return {
+    ok: false,
+    outcome: "REACTION_OUTCOME_UNKNOWN",
+    httpStatus: response.status(),
+  };
 
   let json: unknown;
   try {
     json = await response.json();
   } catch {
-    return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN" };
+    return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN", httpStatus: response.status() };
   }
   if (!isRecord(json) || json.success !== true) {
-    return { ok: false, outcome: "REACTION_REJECTED" };
+    return { ok: false, outcome: "REACTION_REJECTED", httpStatus: response.status() };
   }
   if (typeof json.reactionId !== "string" && typeof json.reactionId !== "number") {
-    return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN" };
+    return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN", httpStatus: response.status() };
   }
 
   const reactionData = json.reactionData;
   if (reactionData !== undefined) {
     if (!isRecord(reactionData) || reactionData.action !== "remove") {
-      return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN" };
+      return { ok: false, outcome: "REACTION_OUTCOME_UNKNOWN", httpStatus: response.status() };
     }
   }
   return {
     ok: true,
     reactionId: json.reactionId,
+    httpStatus: response.status(),
     ...(isRecord(reactionData) && typeof reactionData.action === "string"
       ? { serverAction: reactionData.action }
       : {}),

@@ -6,6 +6,7 @@ import { reportSummary } from "../dry-run/reporter.js";
 import {
   runCoordinatedAutomaticPreparation,
 } from "../reaction/automaticCoordinator.js";
+import { createAutomaticLiveDependencies } from "../reaction/automaticLiveAdapter.js";
 import { fetchDwellingReactionDetails } from "../reaction/dwellingDetails.js";
 import { fetchReactionFormConfig } from "../reaction/formConfig.js";
 import { formatAmsterdamDateTime } from "../scheduler/scheduler.js";
@@ -67,7 +68,10 @@ export async function scan(config: ScanConfig): Promise<void> {
                 fetchForm: () => fetchReactionFormConfig(context, config.baseUrl),
               },
               config.autoSubmit,
-              { staleAfterMs: config.reactionInProgressStaleMs },
+              {
+                staleAfterMs: config.reactionInProgressStaleMs,
+                ...(config.autoSubmit && { live: createAutomaticLiveDependencies(context, config.baseUrl) }),
+              },
             );
           } catch (error: unknown) {
             logger.error(

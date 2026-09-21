@@ -3,12 +3,14 @@ import type { PreparationFailureReason, PreparedReaction } from "./types.js";
 export interface SuccessfulSubmission {
   ok: true;
   reactionId: string | number;
+  httpStatus: number;
   serverAction?: string;
 }
 
 export interface FailedSubmission {
   ok: false;
   outcome: "REACTION_REJECTED" | "REACTION_OUTCOME_UNKNOWN";
+  httpStatus?: number;
 }
 
 export type SubmissionResult = SuccessfulSubmission | FailedSubmission;

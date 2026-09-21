@@ -9,7 +9,7 @@ export interface LoginConfig {
 export interface ScanConfig extends LoginConfig {
   aanbodPageUrl: string;
   pollingIntervals: PollingIntervals;
-  autoSubmit: false;
+  autoSubmit: boolean;
   reactionInProgressStaleMs: number;
 }
 
@@ -39,15 +39,11 @@ export function loadPollingIntervals(
   };
 }
 
-export function loadAutoSubmit(value = process.env.AUTO_SUBMIT): false {
+export function loadAutoSubmit(value = process.env.AUTO_SUBMIT): boolean {
   const normalized = value?.trim().toLowerCase();
   if (normalized === undefined || normalized === "" || normalized === "false") return false;
-  if (normalized === "true") {
-    throw new Error(
-      "AUTO_SUBMIT=true detected\nAutomatic submission is not enabled in Stage 5.2\nABORT",
-    );
-  }
-  throw new Error("AUTO_SUBMIT must be false in Stage 5.2.");
+  if (normalized === "true") return true;
+  throw new Error("AUTO_SUBMIT must be true or false.");
 }
 
 export function loadReactionInProgressStaleMs(

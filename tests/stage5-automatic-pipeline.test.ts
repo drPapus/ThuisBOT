@@ -110,20 +110,17 @@ test("stale fresh eligibility aborts before form retrieval", async () => {
   );
 });
 
-test("AUTO_SUBMIT defaults off and true is intentionally blocked", () => {
+test("AUTO_SUBMIT defaults off and requires explicit true", () => {
   assert.equal(loadAutoSubmit(undefined), false);
   assert.equal(loadAutoSubmit("false"), false);
-  assert.throws(
-    () => loadAutoSubmit("true"),
-    /AUTO_SUBMIT=true detected[\s\S]*Automatic submission is not enabled in Stage 5\.2[\s\S]*ABORT/,
-  );
+  assert.equal(loadAutoSubmit("true"), true);
+  assert.throws(() => loadAutoSubmit("yes"), /must be true or false/);
 });
 
-test("automatic pipeline has no path to the live submitter", async () => {
+test("preparation-only pipeline has no path to the live submitter", async () => {
   const automaticSource = await readFile(path.resolve("src/reaction/automaticPipeline.ts"), "utf8");
-  const scannerSource = await readFile(path.resolve("src/scanner/scan.ts"), "utf8");
   const dryRunSource = await readFile(path.resolve("src/reaction/prepareReactionCli.ts"), "utf8");
-  for (const source of [automaticSource, scannerSource, dryRunSource]) {
+  for (const source of [automaticSource, dryRunSource]) {
     assert.doesNotMatch(source, /submitPreparedReactionOnce|submitReaction|reactOnceCli/i);
     assert.doesNotMatch(source, /\/portal\/object\/frontend\/react\/format\/json/i);
   }

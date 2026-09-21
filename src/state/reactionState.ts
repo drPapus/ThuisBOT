@@ -4,6 +4,7 @@ import path from "node:path";
 export type AutomaticReactionStatus =
   | "IN_PROGRESS"
   | "PREPARED"
+  | "SUBMITTING"
   | "ABORTED"
   | "UNKNOWN"
   | "SUCCESS"
@@ -16,6 +17,7 @@ export interface AutomaticReactionRecord {
   firstSeenAt: string;
   updatedAt: string;
   reason?: string;
+  attemptId?: string;
 }
 
 export interface AutomaticReactionState {
@@ -37,12 +39,13 @@ function parseRecord(value: unknown): AutomaticReactionRecord {
   if (
     !isNonEmptyString(record.dwellingId) ||
     (record.assignmentId !== undefined && !isNonEmptyString(record.assignmentId)) ||
-    !["IN_PROGRESS", "PREPARED", "ABORTED", "UNKNOWN", "SUCCESS", "FAILED"].includes(String(record.status)) ||
+    !["IN_PROGRESS", "PREPARED", "SUBMITTING", "ABORTED", "UNKNOWN", "SUCCESS", "FAILED"].includes(String(record.status)) ||
     !isNonEmptyString(record.firstSeenAt) ||
     !isNonEmptyString(record.updatedAt) ||
     Number.isNaN(Date.parse(record.firstSeenAt)) ||
     Number.isNaN(Date.parse(record.updatedAt)) ||
-    (record.reason !== undefined && typeof record.reason !== "string")
+    (record.reason !== undefined && typeof record.reason !== "string") ||
+    (record.attemptId !== undefined && !isNonEmptyString(record.attemptId))
   ) {
     throw new Error("record has an invalid structure");
   }
@@ -53,6 +56,7 @@ function parseRecord(value: unknown): AutomaticReactionRecord {
     firstSeenAt: record.firstSeenAt,
     updatedAt: record.updatedAt,
     ...(record.reason !== undefined && { reason: record.reason as string }),
+    ...(record.attemptId !== undefined && { attemptId: record.attemptId as string }),
   };
 }
 
@@ -151,7 +155,8 @@ export function removeReactionRecord(
 
 const LEGAL_TRANSITIONS: Readonly<Record<AutomaticReactionStatus, readonly AutomaticReactionStatus[]>> = {
   IN_PROGRESS: ["PREPARED", "ABORTED", "UNKNOWN"],
-  PREPARED: ["SUCCESS", "FAILED", "UNKNOWN"],
+  PREPARED: ["SUBMITTING", "SUCCESS", "UNKNOWN"],
+  SUBMITTING: ["SUCCESS", "FAILED", "UNKNOWN"],
   ABORTED: [],
   UNKNOWN: [],
   SUCCESS: [],
@@ -162,7 +167,7 @@ export function transitionReactionRecord(
   current: AutomaticReactionRecord,
   status: AutomaticReactionStatus,
   updatedAt: string,
-  updates: Pick<AutomaticReactionRecord, "assignmentId" | "reason"> = {},
+  updates: Pick<AutomaticReactionRecord, "assignmentId" | "reason" | "attemptId"> = {},
 ): AutomaticReactionRecord {
   if (!LEGAL_TRANSITIONS[current.status].includes(status)) {
     throw new Error(`Illegal automatic reaction state transition: ${current.status} -> ${status}`);

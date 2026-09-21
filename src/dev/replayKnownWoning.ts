@@ -41,7 +41,8 @@ async function main(): Promise<void> {
     throw new Error(`Dwelling ${dwellingId} is not in the production known-woningen baseline.`);
   }
 
-  const config = loadScanConfig(); // Enforces AUTO_SUBMIT=false.
+  const config = loadScanConfig();
+  if (config.autoSubmit) throw new Error("AUTO_SUBMIT=true is forbidden in DEV replay mode; ABORT");
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ storageState: STORAGE_STATE_PATH });

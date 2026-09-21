@@ -197,20 +197,18 @@ test("corrupted state fails safely without preparation or reset", async (t) => {
   assert.equal(await readFile(location.file, "utf8"), "{broken");
 });
 
-test("AUTO_SUBMIT=true aborts before state or preparation", async (t) => {
+test("AUTO_SUBMIT=true without live dependencies blocks before submit", async (t) => {
   const location = await statePath();
   t.after(() => rm(location.directory, { recursive: true, force: true }));
   const calls = { count: 0 };
-  await assert.rejects(
-    runCoordinatedAutomaticPreparation(
-      "15001", undefined, dependencies("15001", calls), true as never, { statePath: location.file },
-    ),
-    /AUTO_SUBMIT=true.*ABORT/,
+  await runCoordinatedAutomaticPreparation(
+    "15001", undefined, dependencies("15001", calls), true, { statePath: location.file },
   );
-  assert.equal(calls.count, 0);
+  assert.equal(calls.count, 1);
+  assert.equal((await loadReactionState(location.file)).records[0]?.status, "UNKNOWN");
 });
 
-test("automatic coordination is isolated from baseline and live submitter", async () => {
+test("automatic coordination is isolated from baseline and has only an injected submit boundary", async () => {
   const sources = await Promise.all([
     readFile(path.resolve("src/reaction/automaticCoordinator.ts"), "utf8"),
     readFile(path.resolve("src/state/reactionState.ts"), "utf8"),
@@ -218,9 +216,10 @@ test("automatic coordination is isolated from baseline and live submitter", asyn
   ]);
   for (const source of sources) {
     assert.doesNotMatch(source, /saveKnownWoningen|known-woningen\.json/);
-    assert.doesNotMatch(source, /submitPreparedReactionOnce|submitReaction|reactOnceCli/i);
     assert.doesNotMatch(source, /\/portal\/object\/frontend\/react\/format\/json/i);
   }
+  assert.doesNotMatch(sources[1]!, /submitPreparedReactionOnce|submitReaction|reactOnceCli/i);
+  assert.doesNotMatch(sources[2]!, /submitPreparedReactionOnce|submitReaction|reactOnceCli/i);
   const manual = await readFile(path.resolve("src/reaction/reactOnceCli.ts"), "utf8");
   assert.doesNotMatch(manual, /reactionState|automaticCoordinator/i);
 });
