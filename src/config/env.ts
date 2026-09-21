@@ -9,6 +9,7 @@ export interface LoginConfig {
 export interface ScanConfig extends LoginConfig {
   aanbodPageUrl: string;
   pollingIntervals: PollingIntervals;
+  autoSubmit: false;
 }
 
 const MIN_POLL_INTERVAL_MS = 10_000;
@@ -35,6 +36,17 @@ export function loadPollingIntervals(
     HOT: pollInterval("POLL_HOT_MS", environment.POLL_HOT_MS, 20_000),
     POST_WINDOW: pollInterval("POLL_POST_WINDOW_MS", environment.POLL_POST_WINDOW_MS, 60_000),
   };
+}
+
+export function loadAutoSubmit(value = process.env.AUTO_SUBMIT): false {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === undefined || normalized === "" || normalized === "false") return false;
+  if (normalized === "true") {
+    throw new Error(
+      "AUTO_SUBMIT=true detected\nAutomatic submission is not enabled in Stage 5.1\nABORT",
+    );
+  }
+  throw new Error("AUTO_SUBMIT must be false in Stage 5.1.");
 }
 
 function requiredUrl(name: string, value: string | undefined): string {
@@ -72,5 +84,6 @@ export function loadScanConfig(): ScanConfig {
       ? requiredUrl("THUISPOORT_AANBOD_PAGE_URL", process.env.THUISPOORT_AANBOD_PAGE_URL)
       : new URL("/aanbod/te-huur", baseUrl).toString(),
     pollingIntervals: loadPollingIntervals(),
+    autoSubmit: loadAutoSubmit(),
   };
 }

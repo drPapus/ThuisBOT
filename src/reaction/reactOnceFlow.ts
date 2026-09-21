@@ -1,5 +1,9 @@
 import { prepareReaction } from "./prepareReaction.js";
-import type { LiveReactionDependencies, LiveReactionResult } from "./liveTypes.js";
+import type {
+  LiveReactionDependencies,
+  LiveReactionResult,
+  ReactionPreparationDependencies,
+} from "./liveTypes.js";
 import type { DwellingReactionInput, PreparedReaction } from "./types.js";
 
 function isConfirmedAlreadyReacted(details: DwellingReactionInput): boolean {
@@ -16,9 +20,9 @@ function isConfirmedAlreadyReacted(details: DwellingReactionInput): boolean {
   return actionMatches && (labelMatches || urlMatches);
 }
 
-async function prepareFresh(
+export async function prepareFreshReaction(
   dwellingId: string,
-  dependencies: LiveReactionDependencies,
+  dependencies: ReactionPreparationDependencies,
 ): Promise<{ ok: true; prepared: PreparedReaction } | LiveReactionResult> {
   const details = await dependencies.fetchDetails(dwellingId);
   if (details.loggedIn !== true) {
@@ -46,14 +50,14 @@ export async function runReactOnceFlow(
     return { status: "PREPARATION_FAILED", reason: "MISSING_DWELLING_ID" };
   }
 
-  const preview = await prepareFresh(dwellingId, dependencies);
+  const preview = await prepareFreshReaction(dwellingId, dependencies);
   if (!("ok" in preview)) return preview;
 
   const confirmation = await dependencies.confirm(preview.prepared);
   if (confirmation !== `REACT ${dwellingId}`) return { status: "REACTION_CANCELLED" };
 
   // Re-fetch both authoritative state and form hash after human confirmation.
-  const finalPreparation = await prepareFresh(dwellingId, dependencies);
+  const finalPreparation = await prepareFreshReaction(dwellingId, dependencies);
   if (!("ok" in finalPreparation)) return finalPreparation;
 
   const submission = await dependencies.submit(finalPreparation.prepared);

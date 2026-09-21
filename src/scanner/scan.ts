@@ -2,12 +2,18 @@ import { chromium } from "playwright";
 import { fetchActueelAanbod, SessionExpiredError } from "../api/aanbod.js";
 import { STORAGE_STATE_PATH } from "../auth/storage.js";
 import type { ScanConfig } from "../config/env.js";
-import { reportNewWoningen, reportSummary } from "../dry-run/reporter.js";
+import { reportSummary } from "../dry-run/reporter.js";
+import {
+  runAndReportAutomaticPreparation,
+} from "../reaction/automaticPipeline.js";
+import { fetchDwellingReactionDetails } from "../reaction/dwellingDetails.js";
+import { fetchReactionFormConfig } from "../reaction/formConfig.js";
 import { formatAmsterdamDateTime } from "../scheduler/scheduler.js";
 import { loadKnownWoningen, saveKnownWoningen } from "../state/knownWoningen.js";
 import { logger } from "../utils/logger.js";
 import { normalizeWoningen } from "../woningen/normalize.js";
 import { detectNewWoningen } from "./detectNew.js";
+import { processNewWoningen } from "./processNewWoningen.js";
 
 function reportExpiredSession(): void {
   logger.error("SESSION/API PROFILE NOT AUTHENTICATED");
@@ -43,7 +49,35 @@ export async function scan(config: ScanConfig): Promise<void> {
       // Persist first: a failed write must never emit repeatable NEW events.
       await saveKnownWoningen(result.updatedKnownIds);
       logger.info(`State updated: ${result.updatedKnownIds.length} known woningen`);
-      reportNewWoningen(result.newWoningen, formatAmsterdamDateTime(new Date()));
+      await processNewWoningen(
+        result.newWoningen,
+        formatAmsterdamDateTime(new Date()),
+        async (woning) => {
+          try {
+            await runAndReportAutomaticPreparation(
+              String(woning.id),
+              woning.modelCode,
+              {
+                async isPresentInAanbod(dwellingId) {
+                  const freshAanbod = await fetchActueelAanbod(context, config.aanbodPageUrl);
+                  return freshAanbod.some((candidate) => String(candidate.id) === dwellingId);
+                },
+                fetchDetails: (dwellingId) =>
+                  fetchDwellingReactionDetails(context, config.baseUrl, dwellingId),
+                fetchForm: () => fetchReactionFormConfig(context, config.baseUrl),
+              },
+              config.autoSubmit,
+            );
+          } catch (error: unknown) {
+            logger.error(
+              `Reaction preparation failed for #${woning.id}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            console.log("REACTION ABORTED\nNo reaction sent.\n");
+          }
+        },
+      );
     }
 
     reportSummary(result.current.length, result.newWoningen.length);

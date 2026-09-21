@@ -25,11 +25,14 @@ export type LiveReactionResult =
       authoritativeAction: string;
     };
 
-export interface LiveReactionDependencies {
+export interface ReactionPreparationDependencies {
   isPresentInAanbod(dwellingId: string): Promise<boolean>;
   fetchDetails(dwellingId: string): Promise<import("./types.js").DwellingReactionInput>;
   fetchForm(): Promise<import("./types.js").ReactionFormConfig>;
+  now?: () => Date;
+}
+
+export interface LiveReactionDependencies extends ReactionPreparationDependencies {
   confirm(prepared: PreparedReaction): Promise<string>;
   submit(prepared: PreparedReaction): Promise<SubmissionResult>;
-  now?: () => Date;
 }
