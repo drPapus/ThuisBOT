@@ -23,7 +23,8 @@
     "test:find-unreacted": "tsx --test tests/find-unreacted.test.ts",
     "test:stage2-local": "tsx --test tests/stage2-local.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "mobile-login": "tsx src/auth/mobileLogin.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
