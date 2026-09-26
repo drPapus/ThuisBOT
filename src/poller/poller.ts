@@ -1,16 +1,21 @@
 import {
   calculateNextDelay,
   determinePollingMode,
-  formatAmsterdamTime,
+  formatAmsterdamDateTime,
   type PollingIntervals,
   type PollingMode,
 } from "../scheduler/scheduler.js";
 import { logger } from "../utils/logger.js";
 
+export type PollerScanResult =
+  | { status: "OK" }
+  | { status: "AUTH_REQUIRED" };
+
 export interface PollerOptions {
   intervals: PollingIntervals;
   signal: AbortSignal;
   now?: () => Date;
+  onAuthRequired?: () => Promise<void>;
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -37,9 +42,14 @@ function logMode(previous: PollingMode | undefined, current: PollingMode): void 
 }
 
 export async function runPoller(
-  runScan: () => Promise<void>,
-  { intervals, signal, now = () => new Date() }: PollerOptions,
-): Promise<void> {
+  runScan: () => Promise<PollerScanResult>,
+  {
+    intervals,
+    signal,
+    now = () => new Date(),
+    onAuthRequired,
+   }: PollerOptions,
+ ): Promise<void> {
   logger.info("POLLER STARTED");
   let lastMode: PollingMode | undefined;
 
@@ -48,11 +58,23 @@ export async function runPoller(
     logMode(lastMode, scanMode);
     lastMode = scanMode;
     logger.info("Starting scan...");
-    try {
-      await runScan();
-    } catch (error: unknown) {
-      logger.error(`Scan failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  try {
+   const result = await runScan();
+
+   if (result.status === "AUTH_REQUIRED") {
+    logger.error("AUTH REQUIRED — normal polling stopped.");
+    logger.error("Automatic reactions are paused.");
+    logger.error("Run: npm run login");
+   
+  if (onAuthRequired) {
+    await onAuthRequired();
+  }
+
+    break;
+  }
+} catch (error: unknown) {
+  logger.error(`Scan failed: ${error instanceof Error ? error.message : String(error)}`);
+}
 
     if (signal.aborted) break;
     const schedule = calculateNextDelay(now(), intervals);
@@ -60,8 +82,8 @@ export async function runPoller(
     lastMode = schedule.mode;
     logger.info(`Next scan in ${Math.ceil(schedule.delayMs / 1_000)}s`);
     logger.info(
-      `Next boundary: ${schedule.boundary.nextMode} at ${formatAmsterdamTime(schedule.boundary.at)}`,
-    );
+     `Next boundary: ${schedule.boundary.nextMode} at ${formatAmsterdamDateTime(schedule.boundary.at)}`,
+   );
     await wait(schedule.delayMs, signal);
   }
 

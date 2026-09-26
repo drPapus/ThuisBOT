@@ -113,10 +113,22 @@ test("stale fresh eligibility aborts before form retrieval", async () => {
 });
 
 test("AUTO_SUBMIT defaults off and requires explicit true", () => {
-  assert.equal(loadAutoSubmit(undefined), false);
-  assert.equal(loadAutoSubmit("false"), false);
-  assert.equal(loadAutoSubmit("true"), true);
-  assert.throws(() => loadAutoSubmit("yes"), /must be true or false/);
+  const previous = process.env.AUTO_SUBMIT;
+
+  try {
+    delete process.env.AUTO_SUBMIT;
+
+    assert.equal(loadAutoSubmit(), false);
+    assert.equal(loadAutoSubmit("false"), false);
+    assert.equal(loadAutoSubmit("true"), true);
+    assert.throws(() => loadAutoSubmit("yes"), /must be true or false/);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.AUTO_SUBMIT;
+    } else {
+      process.env.AUTO_SUBMIT = previous;
+    }
+  }
 });
 
 test("preparation-only pipeline has no path to the live submitter", async () => {

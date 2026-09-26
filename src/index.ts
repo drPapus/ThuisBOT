@@ -3,6 +3,7 @@ import { loadScanConfig } from "./config/env.js";
 import { runPoller } from "./poller/poller.js";
 import { createAutomaticLiveRuntime, scan } from "./scanner/scan.js";
 import { logger } from "./utils/logger.js";
+import { sendTelegramNotification } from "./notifications/telegramNotifier.js";
 
 async function main(): Promise<void> {
   const config = loadScanConfig();
@@ -32,9 +33,23 @@ async function main(): Promise<void> {
   try {
     const liveRuntime = createAutomaticLiveRuntime(config);
     await runPoller(() => scan(config, liveRuntime), {
-      intervals: config.pollingIntervals,
-      signal: shutdown.signal,
-    });
+  intervals: config.pollingIntervals,
+  signal: shutdown.signal,
+  onAuthRequired: async () => {
+    await sendTelegramNotification(
+      [
+        "🔴 ThuisBOT stopped",
+        "",
+        "Thuispoort session expired.",
+        "Automatic reactions are paused.",
+        "",
+        "Run: npm run login",
+        "Then start the service again:",
+        "sudo systemctl start thuisbot",
+       ].join("\n"),
+      );
+    },
+  });
   } finally {
     process.removeListener("SIGINT", requestShutdown);
     process.removeListener("SIGTERM", requestShutdown);

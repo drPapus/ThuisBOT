@@ -41,7 +41,14 @@ export function createAutomaticLiveRuntime(config: ScanConfig): AutomaticLiveRun
   };
 }
 
-export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRuntime): Promise<void> {
+export type ScanResult =
+  | { status: "OK" }
+  | { status: "AUTH_REQUIRED" };
+
+export async function scan(
+  config: ScanConfig,
+  suppliedRuntime?: AutomaticLiveRuntime,
+): Promise<ScanResult> {
   // Load state before fetching so corrupted/unreadable state always fails closed.
   const loadedState = await loadKnownWoningen();
   const browser = await chromium.launch({ headless: true });
@@ -81,7 +88,7 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
         runLiveAttempts: runtime.safety.attemptsUsed,
         maxLiveAttempts: runtime.safety.maxAttempts,
       }));
-      return;
+      return { status:"OK" };
     }
 
     const result = detectNewWoningen(uniqueCurrent, loadedState.state.knownIds);
@@ -143,10 +150,12 @@ export async function scan(config: ScanConfig, suppliedRuntime?: AutomaticLiveRu
       runLiveAttempts: runtime.safety.attemptsUsed,
       maxLiveAttempts: runtime.safety.maxAttempts,
     }));
+
+    return { status: "OK" };
   } catch (error: unknown) {
     if (error instanceof SessionExpiredError) {
       reportExpiredSession();
-      return;
+      return { status: "AUTH_REQUIRED" };
     }
     throw error;
   } finally {
